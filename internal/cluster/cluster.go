@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/job"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 type Cluster interface {
@@ -12,6 +13,9 @@ type Cluster interface {
 	SubmitJob(ctx context.Context, spec *job.JobSpec) (jobID string, err error)
 	ListJobs(ctx context.Context) ([]JobInfo, error)
 	GetJob(ctx context.Context, jobID string) (*job.JobSpec, error)
+	GetClusterStatus(ctx context.Context) (*ClusterStatus, error)
+	CancelJob(ctx context.Context, jobID string) error
+	IsJobCancelled(ctx context.Context, jobID string) (bool, error)
 
 	// Worker management
 	RegisterWorker(ctx context.Context, info WorkerInfo) (workerID string, err error)
@@ -25,7 +29,10 @@ type Cluster interface {
 	GetShardStatus(ctx context.Context, jobID string, shardID int) (ShardStatus, error)
 	ReportShardDone(ctx context.Context, jobID string, shardID int, manifest ShardManifest) error
 	ReportShardFailed(ctx context.Context, jobID string, shardID int) error
+	RequestShardSplit(ctx context.Context, jobID string, shardID int, newRanges []ShardRange) error
+	ReassignOrphanedShards(ctx context.Context, jobID string, assignTo string) ([]int, error)
 
+	Client() *clientv3.Client
 	Close() error
 }
 

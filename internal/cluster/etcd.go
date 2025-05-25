@@ -35,6 +35,10 @@ func NewEtcdCluster(cfg EtcdConfig) (Cluster, error) {
 	}, nil
 }
 
+func (c *etcdCluster) Client() *clientv3.Client {
+	return c.client
+}
+
 func (c *etcdCluster) Close() error {
 	return c.client.Close()
 }

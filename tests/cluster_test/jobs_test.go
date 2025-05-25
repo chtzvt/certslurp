@@ -32,3 +32,15 @@ func TestJobLifecycle(t *testing.T) {
 	require.Len(t, jobs, 1)
 	require.Equal(t, jobID, jobs[0].ID)
 }
+
+func TestCancelJob(t *testing.T) {
+	cl, cleanup := setupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	jobID := "canceljob"
+	require.NoError(t, cl.CancelJob(ctx, jobID))
+
+	cancelled, err := cl.IsJobCancelled(ctx, jobID)
+	require.NoError(t, err)
+	require.True(t, cancelled)
+}

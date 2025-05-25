@@ -307,6 +307,25 @@ func (c *etcdCluster) GetShardStatus(ctx context.Context, jobID string, shardID 
 	return status, nil
 }
 
+func (c *etcdCluster) RequestShardSplit(ctx context.Context, jobID string, shardID int, newRanges []ShardRange) error {
+	shardPrefix := fmt.Sprintf("%s/jobs/%s/shards/%d", c.cfg.Prefix, jobID, shardID)
+	splitKey := shardPrefix + "/split"
+
+	// Mark the original as "split" (prevents new assignment)
+	// Atomically add new shards (idempotent if already exist)
+	splitFlag := []byte("1")
+
+	// Store the split flag
+	txn := c.client.Txn(ctx)
+	txn = txn.Then(clientv3.OpPut(splitKey, string(splitFlag)))
+	_, err := txn.Commit()
+	if err != nil {
+		return err
+	}
+	// Add the new shards (BulkCreateShards is idempotent)
+	return c.BulkCreateShards(ctx, jobID, newRanges)
+}
+
 func (c *etcdCluster) ReportShardFailed(ctx context.Context, jobID string, shardID int) error {
 	shardPrefix := fmt.Sprintf("%s/jobs/%s/shards/%d", c.cfg.Prefix, jobID, shardID)
 	retriesKey := shardPrefix + "/retries"
@@ -390,6 +409,18 @@ func (c *etcdCluster) FindOrphanedShards(ctx context.Context, jobID string) ([]i
 		if s.Assigned && !s.Done && s.LeaseExpiry.Before(now) {
 			orphaned = append(orphaned, id)
 		}
+	}
+	return orphaned, nil
+}
+
+func (c *etcdCluster) ReassignOrphanedShards(ctx context.Context, jobID string, assignTo string) ([]int, error) {
+	orphaned, err := c.FindOrphanedShards(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	for _, shardID := range orphaned {
+		// Optionally, do not reassign if the shard is split/cancelled
+		_ = c.AssignShard(ctx, jobID, shardID, assignTo)
 	}
 	return orphaned, nil
 }

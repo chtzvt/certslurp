@@ -76,3 +76,19 @@ func (c *etcdCluster) GetJob(ctx context.Context, jobID string) (*job.JobSpec, e
 	}
 	return &spec, nil
 }
+
+func (c *etcdCluster) CancelJob(ctx context.Context, jobID string) error {
+	key := fmt.Sprintf("%s/jobs/%s/cancelled", c.cfg.Prefix, jobID)
+	_, err := c.client.Put(ctx, key, "1")
+	return err
+}
+
+// Helper to check if job is cancelled
+func (c *etcdCluster) IsJobCancelled(ctx context.Context, jobID string) (bool, error) {
+	key := fmt.Sprintf("%s/jobs/%s/cancelled", c.cfg.Prefix, jobID)
+	resp, err := c.client.Get(ctx, key)
+	if err != nil {
+		return false, err
+	}
+	return len(resp.Kvs) > 0, nil
+}
