@@ -2,19 +2,19 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
+	"github.com/chtzvt/ctsnarf/internal/job"
+	ct "github.com/google/certificate-transparency-go"
+	"github.com/google/certificate-transparency-go/client"
+	"github.com/google/certificate-transparency-go/jsonclient"
+	"github.com/google/certificate-transparency-go/scanner"
 )
-
-// WorkerMetrics can be wired to metrics system or just logged.
-type WorkerMetrics struct {
-	ShardsProcessed int64
-	ShardsFailed    int64
-	ProcessingTime  time.Duration
-}
 
 // Worker supervises concurrent processing of shards for a job.
 type Worker struct {
@@ -31,7 +31,15 @@ type Worker struct {
 	stopCh  chan struct{}
 	stopped chan struct{}
 	wg      sync.WaitGroup
+
+	mainLoopErrorCount int64
+	mainLoopBackoff    time.Duration
 }
+
+const (
+	mainLoopErrorThreshold = 3
+	maxMainLoopBackoff     = 30 * time.Second
+)
 
 // NewWorker constructs a worker with reasonable defaults.
 func NewWorker(cluster cluster.Cluster, jobID, id string, logger *log.Logger) *Worker {
@@ -58,6 +66,8 @@ func (w *Worker) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	var lastErr error
 	heartbeatTicker := time.NewTicker(5 * time.Second)
 	defer heartbeatTicker.Stop()
 
@@ -75,11 +85,36 @@ func (w *Worker) Run(ctx context.Context) error {
 		case <-heartbeatTicker.C:
 			w.heartbeat(ctx)
 		default:
-			if cancelled, _ := w.checkJobCancelled(ctx); cancelled {
+			// --- Main Loop Error Handling ---
+			if lastErr != nil {
+				w.mainLoopErrorCount++
+				if w.mainLoopErrorCount >= mainLoopErrorThreshold {
+					if w.mainLoopBackoff < maxMainLoopBackoff {
+						w.mainLoopBackoff = 2 * w.mainLoopBackoff
+						if w.mainLoopBackoff == 0 {
+							w.mainLoopBackoff = 1 * time.Second
+						}
+					}
+					w.Logger.Printf("worker: backing off for %s due to repeated errors", w.mainLoopBackoff)
+					time.Sleep(w.mainLoopBackoff)
+				}
+			} else {
+				w.mainLoopErrorCount = 0
+				w.mainLoopBackoff = 0
+			}
+			// --- Regular Logic ---
+			cancelled, err := w.checkJobCancelled(ctx)
+			lastErr = err
+			if err != nil {
+				w.Logger.Printf("worker: error checking job cancelled: %v", err)
+				continue
+			}
+			if cancelled {
 				w.Logger.Println("worker: job cancelled")
 				return nil
 			}
 			claimable := w.findClaimableShards(ctx, w.BatchSize)
+			lastErr = nil // Only set lastErr if there was a "hard" error above
 			if len(claimable) == 0 {
 				time.Sleep(w.PollPeriod)
 				continue
@@ -99,7 +134,12 @@ func (w *Worker) Run(ctx context.Context) error {
 
 // Stop signals the worker to exit gracefully.
 func (w *Worker) Stop() {
-	close(w.stopCh)
+	select {
+	case <-w.stopCh:
+		// already closed
+	default:
+		close(w.stopCh)
+	}
 	<-w.stopped // Wait for Run to exit
 }
 
@@ -112,13 +152,12 @@ func (w *Worker) heartbeat(ctx context.Context) {
 
 // Check for job cancellation (set by CancelJob).
 func (w *Worker) checkJobCancelled(ctx context.Context) (bool, error) {
-	status, err := w.Cluster.GetJob(ctx, w.JobID)
+	status, err := w.Cluster.IsJobCancelled(ctx, w.JobID)
 	if err != nil {
 		return false, err
 	}
-	// (You may want to add a dedicated /cancelled key, as in previous recs)
-	// Or use another method to check cancellation.
-	return status.Cancelled, nil
+
+	return status, nil
 }
 
 // findClaimableShards returns up to batchSize shards ready for processing.
@@ -142,64 +181,107 @@ func (w *Worker) findClaimableShards(ctx context.Context, batchSize int) []int {
 	return claimable
 }
 
-// processShardLoop handles claim, pipeline, and report for a single shard.
+// ScanShard fetches & matches entries for the given range using CT scanner.
+func (w *Worker) ScanShard(ctx context.Context, jobSpec job.JobSpec, from, to int64) ([]*ct.RawLogEntry, error) {
+	matchCfg := jobSpec.Options.Match
+	fetchCfg := jobSpec.Options.Fetch
+
+	// Create matcher (see previous buildMatcher function)
+	matcher, matcherInit := buildMatcher(matchCfg)
+	opts := scanner.ScannerOptions{
+		FetcherOptions: scanner.FetcherOptions{
+			BatchSize:     fetchCfg.BatchSize,
+			ParallelFetch: fetchCfg.Workers,
+			StartIndex:    from,
+			EndIndex:      to,
+		},
+		Matcher:     matcher,
+		PrecertOnly: matchCfg.PrecertsOnly,
+		NumWorkers:  w.MaxParallel,
+	}
+	if matchCfg.Workers > 0 {
+		opts.NumWorkers = matchCfg.Workers
+	}
+
+	// Create log client
+	logClient, err := client.New(jobSpec.LogURI, &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSHandshakeTimeout:   30 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			MaxIdleConnsPerHost:   10,
+			DisableKeepAlives:     false,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}, jsonclient.Options{UserAgent: "ctsnarf/1.0"})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log client: %w", err)
+	}
+	if matcherInit != nil {
+		if err := matcherInit(ctx, logClient); err != nil {
+			return nil, err
+		}
+	}
+
+	s := scanner.NewScanner(logClient, opts)
+
+	var results []*ct.RawLogEntry
+	var mu sync.Mutex
+	collect := func(entry *ct.RawLogEntry) {
+		mu.Lock()
+		results = append(results, entry)
+		mu.Unlock()
+	}
+	err = s.Scan(ctx, collect, collect)
+	return results, err
+}
+
+// Update processShardLoop to pass jobSpec to ScanShard
 func (w *Worker) processShardLoop(ctx context.Context, shardID int) {
 	start := time.Now()
 	defer func() {
-		w.Metrics.ProcessingTime += time.Since(start)
+		w.Metrics.AddProcessingTime(time.Since(start))
 	}()
 
-	// Try to claim (ignore error if already claimed by another)
 	if err := w.Cluster.AssignShard(ctx, w.JobID, shardID, w.ID); err != nil {
 		w.Logger.Printf("assign failed: %v", err)
 		return
 	}
-	// Get shard range/status
 	status, err := w.Cluster.GetShardStatus(ctx, w.JobID, shardID)
 	if err != nil {
 		w.Logger.Printf("get shard status failed: %v", err)
 		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
-		w.Metrics.ShardsFailed++
+		w.Metrics.IncFailed()
 		return
 	}
-	// Pipeline stubs (replace with real impl)
-	entries, err := w.FetchEntries(ctx, status.IndexFrom, status.IndexTo)
+	// Get job spec (must be available to the worker; plug in your mechanism)
+	job, err := w.Cluster.GetJob(ctx, w.JobID)
+	if err != nil {
+		w.Logger.Printf("failed to get job spec: %v", err)
+		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
+		w.Metrics.IncFailed()
+		return
+	}
+	matches, err := w.ScanShard(ctx, *job.Spec, status.IndexFrom, status.IndexTo)
 	if err != nil {
 		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
-		w.Metrics.ShardsFailed++
+		w.Metrics.IncFailed()
 		return
 	}
-	matches := w.MatchEntries(entries)
 	outputPath, err := w.WriteOutput(matches)
 	if err != nil {
 		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
-		w.Metrics.ShardsFailed++
+		w.Metrics.IncFailed()
 		return
 	}
-	// Mark done
 	man := cluster.ShardManifest{OutputPath: outputPath}
 	if err := w.Cluster.ReportShardDone(ctx, w.JobID, shardID, man); err != nil {
 		w.Logger.Printf("report done failed: %v", err)
-		w.Metrics.ShardsFailed++
+		w.Metrics.IncFailed()
 		return
 	}
-	w.Metrics.ShardsProcessed++
-	w.Logger.Printf("shard %d completed", shardID)
-}
-
-// --- Pipeline stubs to be implemented/extended ---
-
-func (w *Worker) FetchEntries(ctx context.Context, from, to int64) ([]interface{}, error) {
-	// TODO: Implement fetching from CT log
-	return nil, nil
-}
-
-func (w *Worker) MatchEntries(entries []interface{}) []interface{} {
-	// TODO: Implement filtering/matching logic
-	return entries
-}
-
-func (w *Worker) WriteOutput(matches []interface{}) (string, error) {
-	// TODO: Implement output (transformers/targets)
-	return "", nil
+	w.Metrics.IncProcessed()
+	w.Logger.Printf("shard %d completed (%d matches, %s)", shardID, len(matches), outputPath)
 }
