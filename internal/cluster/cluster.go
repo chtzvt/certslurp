@@ -12,8 +12,11 @@ type Cluster interface {
 	// Job coordination
 	SubmitJob(ctx context.Context, spec *job.JobSpec) (jobID string, err error)
 	ListJobs(ctx context.Context) ([]JobInfo, error)
-	GetJob(ctx context.Context, jobID string) (*job.JobSpec, error)
+	GetJob(ctx context.Context, jobID string) (*JobInfo, error)
 	GetClusterStatus(ctx context.Context) (*ClusterStatus, error)
+	UpdateJobStatus(ctx context.Context, jobID, status string) error
+	MarkJobStarted(ctx context.Context, jobID string) error
+	MarkJobCompleted(ctx context.Context, jobID string) error
 	CancelJob(ctx context.Context, jobID string) error
 	IsJobCancelled(ctx context.Context, jobID string) (bool, error)
 
@@ -37,10 +40,13 @@ type Cluster interface {
 }
 
 type JobInfo struct {
-	ID        string
-	Spec      *job.JobSpec
-	Submitted time.Time
-	Status    string
+	ID        string       `json:"id"`
+	Spec      *job.JobSpec `json:"spec"`
+	Submitted time.Time    `json:"submitted"`
+	Started   time.Time    `json:"started,omitempty"`
+	Completed time.Time    `json:"completed,omitempty"`
+	Status    string       `json:"status"`
+	Cancelled time.Time    `json:"cancelled,omitempty"`
 }
 
 type WorkerInfo struct {
