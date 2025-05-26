@@ -5,59 +5,47 @@ import (
 
 	"github.com/chtzvt/ctsnarf/internal/etl_core"
 	"github.com/chtzvt/ctsnarf/internal/extractor"
+	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/ctsnarf/internal/secrets"
 	"github.com/chtzvt/ctsnarf/internal/sink"
 	"github.com/chtzvt/ctsnarf/internal/transformer"
 )
 
+// Pipeline orchestrates the ETL process for a stream of records, with chunking support.
 type Pipeline struct {
-	Extractor   extractor.Extractor
-	Transformer transformer.Transformer
-	Sink        sink.Sink
-	Ctx         *etl_core.Context
+	Extractor     extractor.Extractor
+	Transformer   transformer.Transformer
+	Sink          sink.Sink
+	Ctx           *etl_core.Context
+	MaxChunkBytes int // 0 means unlimited
+	MaxChunkRecs  int // 0 means unlimited
+	BaseName      string
 }
 
-func (p *Pipeline) Process(rawEntry interface{}) error {
-	extracted, err := p.Extractor.Extract(p.Ctx, rawEntry)
+func NewPipeline(spec *job.JobSpec, secrets *secrets.Store, baseName string) (*Pipeline, error) {
+	ext, err := extractor.ForName(spec.Options.Output.Extractor)
 	if err != nil {
-		return fmt.Errorf("extract: %w", err)
+		return nil, fmt.Errorf("extractor: %w", err)
 	}
-	transformed, err := p.Transformer.Transform(p.Ctx, extracted)
+	tr, err := transformer.ForName(spec.Options.Output.Transformer)
 	if err != nil {
-		return fmt.Errorf("transform: %w", err)
+		return nil, fmt.Errorf("transformer: %w", err)
 	}
-	if err := p.Sink.Write(p.Ctx, transformed); err != nil {
-		return fmt.Errorf("sink: %w", err)
+	sinkFactory, ok := sink.ForName(spec.Options.Output.Sink)
+	if !ok {
+		return nil, fmt.Errorf("sink: not found: %s", spec.Options.Output.Sink)
 	}
-	return nil
-}
-
-func (p *Pipeline) ProcessStream(entries <-chan interface{}) error {
-	for raw := range entries {
-		if err := p.Process(raw); err != nil {
-			return err // Or collect/report errors, as needed
-		}
-	}
-	return nil
-}
-
-func NewPipeline(ctx *etl_core.Context) (*Pipeline, error) {
-	// Instantiate the components based on JobSpec in ctx.Spec
-	extractor, err := extractor.ForName(ctx.Spec.Options.Output.Extractor.Name)
+	sinkInst, err := sinkFactory(spec.Options.Output.SinkOptions, secrets)
 	if err != nil {
-		return nil, err
-	}
-	transformer, err := transformer.ForName(ctx.Spec.Options.Output.Transformer.Name)
-	if err != nil {
-		return nil, err
-	}
-	sink, err := sink.ForName(ctx.Spec.Options.Output.Target.Name)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sink init: %w", err)
 	}
 	return &Pipeline{
-		Extractor:   extractor,
-		Transformer: transformer,
-		Sink:        sink,
-		Ctx:         ctx,
+		Extractor:     ext,
+		Transformer:   tr,
+		Sink:          sinkInst,
+		Ctx:           &etl_core.Context{Spec: spec},
+		BaseName:      baseName,
+		MaxChunkBytes: spec.Options.Output.ChunkBytes,
+		MaxChunkRecs:  spec.Options.Output.ChunkRecords,
 	}, nil
 }

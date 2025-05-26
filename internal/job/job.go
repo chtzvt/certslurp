@@ -22,6 +22,8 @@ type JobOptions struct {
 }
 
 type OutputOptions struct {
+	ChunkRecords       int                    `json:"chunk_records"`
+	ChunkBytes         int                    `json:"chunk_bytes"`
 	Extractor          string                 `json:"extractor"`
 	ExtractorOptions   map[string]interface{} `json:"extractor_options"`
 	Transformer        string                 `json:"transformer"`
