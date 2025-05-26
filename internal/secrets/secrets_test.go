@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -15,43 +13,8 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
-func setupTempDir(t *testing.T) (string, func()) {
-	tempDir, err := os.MkdirTemp("", "secrets")
-	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
-	}
-	return tempDir, func() { os.RemoveAll(tempDir) }
-}
-
-func setupTestStore(t *testing.T) *Store {
-	t.Helper()
-
-	// Start embedded etcd and get cleanup
-	cluster, cleanup := testutil.SetupEtcdCluster(t)
-	t.Cleanup(cleanup)
-
-	tempDir, cleanup2 := setupTempDir(t)
-	t.Cleanup(cleanup2)
-
-	keyPath := filepath.Join(tempDir, "test_node_key")
-	store, err := NewStore(cluster.Client(), keyPath)
-	if err != nil {
-		t.Fatalf("Failed to create Store: %v", err)
-	}
-	// Simulate admin approval for bootstrap (direct cluster key approval)
-	var clusterKey [32]byte
-	_, _ = rand.Read(clusterKey[:])
-	sealed, _ := box.SealAnonymous(nil, clusterKey[:], &store.keys.Public, rand.Reader)
-	_, err = cluster.Client().Put(context.TODO(), "/ctsnarf/secrets/keys/"+store.nodeID, base64.StdEncoding.EncodeToString(sealed))
-	if err != nil {
-		t.Fatalf("Failed to put cluster key: %v", err)
-	}
-	store.clusterK = clusterKey
-	return store
-}
-
 func TestSetAndGet(t *testing.T) {
-	store := setupTestStore(t)
+	store := SetupTestStore(t)
 	ctx := context.TODO()
 
 	testKey := "test-secret"
@@ -72,7 +35,7 @@ func TestSetAndGet(t *testing.T) {
 }
 
 func TestGetNotFound(t *testing.T) {
-	store := setupTestStore(t)
+	store := SetupTestStore(t)
 	ctx := context.TODO()
 	_, err := store.Get(ctx, "not-a-real-key")
 	if err == nil {
@@ -81,7 +44,7 @@ func TestGetNotFound(t *testing.T) {
 }
 
 func TestSecretOverwrite(t *testing.T) {
-	store := setupTestStore(t)
+	store := SetupTestStore(t)
 	ctx := context.TODO()
 	key := "overwrite"
 	val1 := []byte("v1")
@@ -98,7 +61,7 @@ func TestSecretOverwrite(t *testing.T) {
 }
 
 func TestSecretDelete(t *testing.T) {
-	store := setupTestStore(t)
+	store := SetupTestStore(t)
 	ctx := context.TODO()
 	key := "del"
 	val := []byte("gone")
@@ -115,7 +78,7 @@ func TestSecretDelete(t *testing.T) {
 }
 
 func TestSecretList(t *testing.T) {
-	store := setupTestStore(t)
+	store := SetupTestStore(t)
 	ctx := context.TODO()
 	keys := []string{"a", "b", "c/d", "d"}
 	for _, k := range keys {
@@ -138,7 +101,7 @@ func TestSecretList(t *testing.T) {
 }
 
 func TestSecretConcurrency(t *testing.T) {
-	store := setupTestStore(t)
+	store := SetupTestStore(t)
 	ctx := context.TODO()
 	n := 20
 	keys := make([]string, n)
@@ -163,7 +126,7 @@ func TestSecretConcurrency(t *testing.T) {
 }
 
 func TestSecretEmptyValue(t *testing.T) {
-	store := setupTestStore(t)
+	store := SetupTestStore(t)
 	ctx := context.TODO()
 	key := "empty"
 	require.NoError(t, store.Set(ctx, key, []byte{}))
@@ -176,7 +139,7 @@ func TestBootstrapRegistrationFlow(t *testing.T) {
 	cluster, cleanup := testutil.SetupEtcdCluster(t)
 	t.Cleanup(cleanup)
 
-	tempDir, cleanup2 := setupTempDir(t)
+	tempDir, cleanup2 := testutil.SetupTempDir(t)
 	t.Cleanup(cleanup2)
 	keyPath := tempDir + "/node_key"
 
@@ -216,7 +179,7 @@ func TestBootstrapRegistrationFlow(t *testing.T) {
 func TestBootstrapRegistrationTimeout(t *testing.T) {
 	cluster, cleanup := testutil.SetupEtcdCluster(t)
 	t.Cleanup(cleanup)
-	tempDir, cleanup2 := setupTempDir(t)
+	tempDir, cleanup2 := testutil.SetupTempDir(t)
 	t.Cleanup(cleanup2)
 	keyPath := tempDir + "/node_key"
 

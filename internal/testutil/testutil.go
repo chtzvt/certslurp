@@ -153,3 +153,11 @@ func NewTestLogger(discard bool) *log.Logger {
 	}
 	return log.New(os.Stdout, "[worker] ", log.LstdFlags)
 }
+
+func SetupTempDir(t *testing.T) (string, func()) {
+	tempDir, err := os.MkdirTemp("", "testutil")
+	if err != nil {
+		t.Fatalf("failed to create temporary directory: %v", err)
+	}
+	return tempDir, func() { os.RemoveAll(tempDir) }
+}
