@@ -2,135 +2,158 @@ package worker_test
 
 import (
 	"context"
-	"log"
-	"os"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/cluster"
-	"github.com/chtzvt/ctsnarf/internal/job"
 	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/chtzvt/ctsnarf/internal/worker"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/server/v3/embed"
 )
-
-func setupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
-	t.Helper()
-
-	cfg := embed.NewConfig()
-	cfg.Dir = t.TempDir()
-	cfg.Logger = "zap"
-	cfg.LogLevel = "error"
-
-	e, err := embed.StartEtcd(cfg)
-	require.NoError(t, err)
-
-	select {
-	case <-e.Server.ReadyNotify():
-	case <-time.After(10 * time.Second):
-		t.Fatal("etcd server did not become ready in time")
-	}
-
-	cl, err := cluster.NewEtcdCluster(cluster.EtcdConfig{
-		Endpoints:   []string{e.Clients[0].Addr().String()},
-		DialTimeout: 2 * time.Second,
-		Prefix:      "/ctsnarf_test",
-	})
-	require.NoError(t, err)
-
-	cleanup := func() {
-		_ = cl.Close()
-		e.Close()
-	}
-	return cl, cleanup
-}
 
 func TestWorkerE2EJobCompletion(t *testing.T) {
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
-
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 
-	ctx := context.Background()
-	spec := &job.JobSpec{
-		Version: "0.1.0",
-		LogURI:  ts.URL,
-		Options: job.JobOptions{
-			Fetch: job.FetchConfig{
-				BatchSize:  8,
-				Workers:    1,
-				IndexStart: 0,
-				IndexEnd:   4,
-			},
-		},
-	}
-	jobID, err := cl.SubmitJob(ctx, spec)
-	require.NoError(t, err)
-	require.NotEmpty(t, jobID)
+	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 2)
+	logger := testutil.NewTestLogger(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	workers := testutil.RunWorkers(ctx, t, cl, jobID, 2, logger)
 
-	// Create 5 shards for the job (update as appropriate for the stub data)
-	numShards := 2
-	ranges := make([]cluster.ShardRange, numShards)
-	for i := 0; i < numShards; i++ {
-		ranges[i] = cluster.ShardRange{
-			ShardID:   i,
-			IndexFrom: int64(i * 2),
-			IndexTo:   int64((i + 1) * 2),
-		}
-	}
-	require.NoError(t, cl.BulkCreateShards(ctx, jobID, ranges))
+	testutil.WaitFor(t, func() bool {
+		return testutil.AllShardsDone(t, cl, jobID)
+	}, 5*time.Second, 100*time.Millisecond, "job should complete")
 
-	// Start 2 workers
+	for _, w := range workers {
+		w.Stop()
+	}
+}
+
+func TestE2E_JobHappyPath(t *testing.T) {
+	cl, cleanup := testutil.SetupEtcdCluster(t)
+	defer cleanup()
+	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
+	defer ts.Close()
+	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 4)
+	logger := testutil.NewTestLogger(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	workers := testutil.RunWorkers(ctx, t, cl, jobID, 2, logger)
+	testutil.WaitFor(t, func() bool {
+		return testutil.AllShardsDone(t, cl, jobID)
+	}, 5*time.Second, 100*time.Millisecond, "job should complete")
+	for _, w := range workers {
+		w.Stop()
+	}
+}
+
+// Simulate a worker dying mid-job: test reassign and recovery
+func TestCluster_WorkerFailureRecovery(t *testing.T) {
+	cl, cleanup := testutil.SetupEtcdCluster(t)
+	defer cleanup()
+	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
+	defer ts.Close()
+	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 4)
+	logger := testutil.NewTestLogger(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	workerCount := 2
 	doneCh := make(chan struct{}, workerCount)
 	workers := make([]*worker.Worker, workerCount)
-	var logger = log.New(os.Stderr, "[worker] ", log.LstdFlags)
-
+	killed := int32(0)
 	for i := 0; i < workerCount; i++ {
-		id := "worker-" + string(rune('A'+i))
-		w := worker.NewWorker(cl, jobID, id, logger)
+		w := worker.NewWorker(cl, jobID, fmt.Sprintf("fail-%d", i), logger)
 		workers[i] = w
-		go func(w *worker.Worker) {
-			_ = w.Run(ctx)
+		go func(idx int, w *worker.Worker) {
+			workerCtx, cancel := context.WithCancel(ctx)
+			if idx == 0 { // kill first worker after a moment
+				go func() {
+					time.Sleep(1 * time.Second)
+					cancel()
+					atomic.StoreInt32(&killed, 1)
+				}()
+			}
+			_ = w.Run(workerCtx)
 			doneCh <- struct{}{}
-		}(w)
+		}(i, w)
 	}
+	testutil.WaitFor(t, func() bool {
+		return testutil.AllShardsDone(t, cl, jobID)
+	}, 8*time.Second, 100*time.Millisecond, "all shards should finish even if a worker died")
 
-	timeout := time.After(10 * time.Second)
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
-loop:
-	for {
-		select {
-		case <-timeout:
-			t.Fatalf("timeout waiting for job to complete")
-		case <-tick.C:
-			assignments, err := cl.GetShardAssignments(ctx, jobID)
-			require.NoError(t, err)
-			done := 0
-			for _, stat := range assignments {
-				if stat.Done || stat.Failed {
-					done++
-				}
-			}
-			if done == numShards {
-				break loop
-			}
-		}
-	}
-	// Stop workers
 	for _, w := range workers {
 		w.Stop()
 	}
 	for i := 0; i < workerCount; i++ {
 		<-doneCh
 	}
-	assignments, err := cl.GetShardAssignments(ctx, jobID)
+	require.Equal(t, int32(1), killed, "simulated one worker kill")
+	assignments, err := cl.GetShardAssignments(context.Background(), jobID)
 	require.NoError(t, err)
 	for shardID, stat := range assignments {
 		require.True(t, stat.Done, "shard %d not done", shardID)
 		require.False(t, stat.Failed, "shard %d failed", shardID)
 	}
+}
+
+// Test racing for the same shard assignment
+func TestCluster_ConcurrentAssignment(t *testing.T) {
+	cl, cleanup := testutil.SetupEtcdCluster(t)
+	defer cleanup()
+	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
+	defer ts.Close()
+	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 1) // just one shard!
+	shardID := 0
+	workerCount := 10
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+	var success int32
+	for i := 0; i < workerCount; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			err := cl.AssignShard(context.Background(), jobID, shardID, fmt.Sprintf("w%d", idx))
+			if err == nil {
+				atomic.AddInt32(&success, 1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	require.Equal(t, int32(1), success, "only one worker should claim shard")
+}
+
+// Large-scale stress test: 10000 shards, 100 workers
+func TestCluster_LargeScaleStress(t *testing.T) {
+	cl, cleanup := testutil.SetupEtcdCluster(t)
+	defer cleanup()
+	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
+	defer ts.Close()
+	numShards := 1000 // start smaller for CI sanity, can go higher locally
+	workerCount := 20
+	jobID := testutil.SubmitTestJob(t, cl, ts.URL, numShards)
+	logger := testutil.NewTestLogger(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	workers := testutil.RunWorkers(ctx, t, cl, jobID, workerCount, logger)
+	testutil.WaitFor(t, func() bool {
+		return testutil.AllShardsDone(t, cl, jobID)
+	}, 18*time.Second, 300*time.Millisecond, "large job should complete")
+	for _, w := range workers {
+		w.Stop()
+	}
+	assignments, err := cl.GetShardAssignments(context.Background(), jobID)
+	require.NoError(t, err)
+	doneCount := 0
+	for _, stat := range assignments {
+		if stat.Done {
+			doneCount++
+		}
+		require.False(t, stat.Failed, "no shard should fail")
+	}
+	require.Equal(t, numShards, doneCount, "all shards done")
 }

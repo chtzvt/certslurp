@@ -8,11 +8,12 @@ import (
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
 	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 func TestJobLifecycle(t *testing.T) {
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -58,7 +59,7 @@ func TestJobLifecycle(t *testing.T) {
 }
 
 func TestCancelJobErrors(t *testing.T) {
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 	ctx := context.Background()
 	_, err := cl.GetJob(ctx, "doesnotexist")
@@ -75,7 +76,7 @@ func TestCancelJobErrors(t *testing.T) {
 }
 
 func TestListJobs_AllFields(t *testing.T) {
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 	ctx := context.Background()
 

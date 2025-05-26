@@ -6,11 +6,12 @@ import (
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
 	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetClusterStatus(t *testing.T) {
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 	ctx := context.Background()
 

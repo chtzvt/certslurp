@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
+	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWorkerLifecycle(t *testing.T) {
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 
 	ctx := context.Background()

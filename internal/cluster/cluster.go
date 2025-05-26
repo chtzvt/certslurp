@@ -35,6 +35,7 @@ type Cluster interface {
 	RequestShardSplit(ctx context.Context, jobID string, shardID int, newRanges []ShardRange) error
 	ReassignOrphanedShards(ctx context.Context, jobID string, assignTo string) ([]int, error)
 
+	Prefix() string
 	Client() *clientv3.Client
 	Close() error
 }

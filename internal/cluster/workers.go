@@ -18,7 +18,7 @@ func (c *etcdCluster) RegisterWorker(ctx context.Context, info WorkerInfo) (stri
 		workerID = uuid.New().String()
 		info.ID = workerID
 	}
-	key := path.Join(c.cfg.Prefix, "workers", workerID)
+	key := path.Join(c.Prefix(), "workers", workerID)
 	val, _ := json.Marshal(info)
 
 	lease, err := c.client.Grant(ctx, 15)
@@ -38,7 +38,7 @@ func (c *etcdCluster) RegisterWorker(ctx context.Context, info WorkerInfo) (stri
 }
 
 func (c *etcdCluster) ListWorkers(ctx context.Context) ([]WorkerInfo, error) {
-	prefix := path.Join(c.cfg.Prefix, "workers") + "/"
+	prefix := path.Join(c.Prefix(), "workers") + "/"
 	resp, err := c.client.Get(ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (c *etcdCluster) ListWorkers(ctx context.Context) ([]WorkerInfo, error) {
 }
 
 func (c *etcdCluster) HeartbeatWorker(ctx context.Context, workerID string) error {
-	key := path.Join(c.cfg.Prefix, "workers", workerID)
+	key := path.Join(c.Prefix(), "workers", workerID)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	resp, err := c.client.Get(ctx, key)
 	if err != nil {

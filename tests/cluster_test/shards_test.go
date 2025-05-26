@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
+	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBulkCreateAndShardAssignmentLifecycle(t *testing.T) {
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -78,7 +79,7 @@ func TestBulkCreateAndShardAssignmentLifecycle(t *testing.T) {
 }
 
 func TestRequestShardSplit(t *testing.T) {
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 	ctx := context.Background()
 	jobID := "splitjob"
@@ -92,7 +93,7 @@ func TestRequestShardSplit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check the split flag
-	prefix := "/ctsnarf_test/jobs/splitjob/shards/10/split"
+	prefix := cl.Prefix() + "/jobs/splitjob/shards/10/split"
 	resp, err := cl.Client().Get(ctx, prefix)
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Kvs)
@@ -105,7 +106,7 @@ func TestRequestShardSplit(t *testing.T) {
 }
 
 func TestReassignOrphanedShards(t *testing.T) {
-	cl, cleanup := setupEtcdCluster(t)
+	cl, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 	ctx := context.Background()
 	jobID := "orphanjob"
@@ -114,7 +115,7 @@ func TestReassignOrphanedShards(t *testing.T) {
 	// Simulate orphan by assigning and then "expiring" lease
 	_ = cl.AssignShard(ctx, jobID, 0, "deadworker")
 	// Manually set lease expiry in the past
-	prefix := "/ctsnarf_test/jobs/orphanjob/shards/0/assignment"
+	prefix := cl.Prefix() + "/jobs/orphanjob/shards/0/assignment"
 	resp, err := cl.Client().Get(ctx, prefix)
 	require.NoError(t, err)
 	if len(resp.Kvs) > 0 {

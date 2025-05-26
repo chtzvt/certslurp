@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
+	"github.com/chtzvt/ctsnarf/internal/testutil"
 )
 
 func TestBulkCreateAndGetShardStatus(t *testing.T) {
 	// Start a fresh etcd (details omitted, see previous test example)
-	c, cleanup := setupEtcdCluster(t)
+	c, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 
 	jobID := "testjob"

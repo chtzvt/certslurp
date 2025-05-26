@@ -33,7 +33,7 @@ func TestWorker_ScanShard_StubbedCTLog(t *testing.T) {
 		},
 	}
 
-	cluster, cleanup := setupEtcdCluster(t)
+	cluster, cleanup := testutil.SetupEtcdCluster(t)
 	defer cleanup()
 
 	w := worker.NewWorker(cluster, "testjob", "worker-1", nil)
@@ -59,11 +59,11 @@ func TestWorker_ScanShard_StubbedCTLog(t *testing.T) {
 		t.Error("Expected to find mail.google.com cert, did not")
 	}
 
-	// Optionally: test WriteOutput
 	fname, err := w.WriteOutput(results, 0)
 	if err != nil {
 		t.Fatalf("WriteOutput: %v", err)
 	}
+
 	data, _ := os.ReadFile(fname)
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		if len(line) == 0 {

@@ -16,7 +16,7 @@ import (
 func (c *etcdCluster) SubmitJob(ctx context.Context, spec *job.JobSpec) (string, error) {
 	jobID := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	base := fmt.Sprintf("%s/jobs/%s", c.cfg.Prefix, jobID)
+	base := fmt.Sprintf("%s/jobs/%s", c.Prefix(), jobID)
 	txn := c.client.Txn(ctx).Then(
 		clientv3.OpPut(base+"/spec", mustJSON(spec)),
 		clientv3.OpPut(base+"/submitted", now),
@@ -30,7 +30,7 @@ func (c *etcdCluster) SubmitJob(ctx context.Context, spec *job.JobSpec) (string,
 }
 
 func (c *etcdCluster) ListJobs(ctx context.Context) ([]JobInfo, error) {
-	prefix := fmt.Sprintf("%s/jobs/", c.cfg.Prefix)
+	prefix := fmt.Sprintf("%s/jobs/", c.Prefix())
 	resp, err := c.client.Get(ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (c *etcdCluster) ListJobs(ctx context.Context) ([]JobInfo, error) {
 }
 
 func (c *etcdCluster) GetJob(ctx context.Context, jobID string) (*JobInfo, error) {
-	prefix := fmt.Sprintf("%s/jobs/%s/", c.cfg.Prefix, jobID)
+	prefix := fmt.Sprintf("%s/jobs/%s/", c.Prefix(), jobID)
 	resp, err := c.client.Get(ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
 		return nil, err
@@ -120,19 +120,19 @@ func (c *etcdCluster) GetJob(ctx context.Context, jobID string) (*JobInfo, error
 }
 
 func (c *etcdCluster) UpdateJobStatus(ctx context.Context, jobID, status string) error {
-	key := fmt.Sprintf("%s/jobs/%s/status", c.cfg.Prefix, jobID)
+	key := fmt.Sprintf("%s/jobs/%s/status", c.Prefix(), jobID)
 	_, err := c.client.Put(ctx, key, status)
 	return err
 }
 
 func (c *etcdCluster) MarkJobStarted(ctx context.Context, jobID string) error {
-	key := fmt.Sprintf("%s/jobs/%s/started", c.cfg.Prefix, jobID)
+	key := fmt.Sprintf("%s/jobs/%s/started", c.Prefix(), jobID)
 	_, err := c.client.Put(ctx, key, time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }
 
 func (c *etcdCluster) MarkJobCompleted(ctx context.Context, jobID string) error {
-	key := fmt.Sprintf("%s/jobs/%s/completed", c.cfg.Prefix, jobID)
+	key := fmt.Sprintf("%s/jobs/%s/completed", c.Prefix(), jobID)
 	_, err := c.client.Put(ctx, key, time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }
@@ -142,14 +142,14 @@ func (c *etcdCluster) CancelJob(ctx context.Context, jobID string) error {
 	if err != nil {
 		return err // or ignore if not found
 	}
-	key := fmt.Sprintf("%s/jobs/%s/cancelled", c.cfg.Prefix, jobID)
+	key := fmt.Sprintf("%s/jobs/%s/cancelled", c.Prefix(), jobID)
 	_, err = c.client.Put(ctx, key, time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }
 
 // Helper to check if job is cancelled
 func (c *etcdCluster) IsJobCancelled(ctx context.Context, jobID string) (bool, error) {
-	key := fmt.Sprintf("%s/jobs/%s/cancelled", c.cfg.Prefix, jobID)
+	key := fmt.Sprintf("%s/jobs/%s/cancelled", c.Prefix(), jobID)
 	resp, err := c.client.Get(ctx, key)
 	if err != nil {
 		return false, err
