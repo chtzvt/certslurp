@@ -99,7 +99,23 @@ func RunWorkers(ctx context.Context, t *testing.T, cl cluster.Cluster, jobID str
 			_ = w.Run(ctx)
 		}(w)
 	}
-	// NOTE: You can wait on wg.Wait() if you want to wait for all workers to finish
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if AllShardsDone(t, cl, jobID) {
+					_ = cl.MarkJobCompleted(ctx, jobID)
+					_ = cl.UpdateJobStatus(ctx, jobID, cluster.JobStateCompleted)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}()
+
 	return workers
 }
 

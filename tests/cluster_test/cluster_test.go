@@ -3,6 +3,7 @@ package cluster_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
 	"github.com/chtzvt/ctsnarf/internal/job"
@@ -49,5 +50,40 @@ func TestGetClusterStatus(t *testing.T) {
 		if s.ShardID == 0 {
 			require.True(t, s.Done)
 		}
+	}
+}
+
+func TestCluster_CompactionSafety(t *testing.T) {
+	cl, cleanup := testutil.SetupEtcdCluster(t)
+	defer cleanup()
+	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
+	defer ts.Close()
+	numShards := 50
+	jobID := testutil.SubmitTestJob(t, cl, ts.URL, numShards)
+	logger := testutil.NewTestLogger(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	workers := testutil.RunWorkers(ctx, t, cl, jobID, 5, logger)
+	testutil.WaitFor(t, func() bool {
+		return testutil.AllShardsDone(t, cl, jobID)
+	}, 8*time.Second, 200*time.Millisecond, "shards should finish")
+
+	// Force compaction
+	_, err := cl.Client().Compact(context.Background(), 0)
+	require.NoError(t, err)
+
+	// Submit another job, process, check that cluster is still healthy
+	jobID2 := testutil.SubmitTestJob(t, cl, ts.URL, 3)
+	workers2 := testutil.RunWorkers(ctx, t, cl, jobID2, 2, logger)
+	testutil.WaitFor(t, func() bool {
+		return testutil.AllShardsDone(t, cl, jobID2)
+	}, 5*time.Second, 100*time.Millisecond, "second job should also complete")
+
+	for _, w := range workers {
+		w.Stop()
+	}
+	for _, w := range workers2 {
+		w.Stop()
 	}
 }

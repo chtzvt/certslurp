@@ -130,3 +130,22 @@ func TestReassignOrphanedShards(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, orphans, 0)
 }
+
+func TestCluster_OrphanedShardRecovery(t *testing.T) {
+	cl, cleanup := testutil.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
+	defer ts.Close()
+	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 1)
+	shardID := 0
+
+	// Assign the shard, then expire its lease
+	require.NoError(t, cl.AssignShard(ctx, jobID, shardID, "oldworker"))
+	testutil.ExpireShardLease(t, cl, jobID, shardID)
+
+	// Now attempt to reassign via ReassignOrphanedShards
+	orphans, err := cl.ReassignOrphanedShards(ctx, jobID, "newworker")
+	require.NoError(t, err)
+	require.Contains(t, orphans, shardID)
+}

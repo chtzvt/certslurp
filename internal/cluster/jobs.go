@@ -13,6 +13,25 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
+type JobInfo struct {
+	ID        string       `json:"id"`
+	Spec      *job.JobSpec `json:"spec"`
+	Submitted time.Time    `json:"submitted"`
+	Started   time.Time    `json:"started,omitempty"`
+	Completed time.Time    `json:"completed,omitempty"`
+	Status    JobState     `json:"status"`
+	Cancelled time.Time    `json:"cancelled,omitempty"`
+}
+
+type JobState string
+
+const (
+	JobStatePending   JobState = "pending"
+	JobStateRunning   JobState = "running"
+	JobStateCompleted JobState = "completed"
+	JobStateCancelled JobState = "cancelled"
+)
+
 func (c *etcdCluster) SubmitJob(ctx context.Context, spec *job.JobSpec) (string, error) {
 	jobID := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -20,7 +39,7 @@ func (c *etcdCluster) SubmitJob(ctx context.Context, spec *job.JobSpec) (string,
 	txn := c.client.Txn(ctx).Then(
 		clientv3.OpPut(base+"/spec", mustJSON(spec)),
 		clientv3.OpPut(base+"/submitted", now),
-		clientv3.OpPut(base+"/status", "pending"),
+		clientv3.OpPut(base+"/status", string(JobStatePending)),
 	)
 	_, err := txn.Commit()
 	if err != nil {
@@ -68,7 +87,7 @@ func (c *etcdCluster) ListJobs(ctx context.Context) ([]JobInfo, error) {
 				jobMap[jobID].Cancelled = ts
 			}
 		case strings.HasSuffix(string(kv.Key), "/status"):
-			jobMap[jobID].Status = string(kv.Value)
+			jobMap[jobID].Status = JobState(kv.Value)
 		}
 	}
 	jobs := make([]JobInfo, 0, len(jobMap))
@@ -113,27 +132,41 @@ func (c *etcdCluster) GetJob(ctx context.Context, jobID string) (*JobInfo, error
 				info.Cancelled = ts
 			}
 		case strings.HasSuffix(key, "/status"):
-			info.Status = string(kv.Value)
+			info.Status = JobState(kv.Value)
 		}
 	}
 	return info, nil
 }
 
-func (c *etcdCluster) UpdateJobStatus(ctx context.Context, jobID, status string) error {
+func (c *etcdCluster) UpdateJobStatus(ctx context.Context, jobID string, status JobState) error {
 	key := fmt.Sprintf("%s/jobs/%s/status", c.Prefix(), jobID)
-	_, err := c.client.Put(ctx, key, status)
+	_, err := c.client.Put(ctx, key, string(status))
 	return err
 }
 
 func (c *etcdCluster) MarkJobStarted(ctx context.Context, jobID string) error {
-	key := fmt.Sprintf("%s/jobs/%s/started", c.Prefix(), jobID)
-	_, err := c.client.Put(ctx, key, time.Now().UTC().Format(time.RFC3339Nano))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	statusKey := fmt.Sprintf("%s/jobs/%s/status", c.Prefix(), jobID)
+	startedKey := fmt.Sprintf("%s/jobs/%s/started", c.Prefix(), jobID)
+
+	txn := c.client.Txn(ctx).Then(
+		clientv3.OpPut(startedKey, now),
+		clientv3.OpPut(statusKey, string(JobStateRunning)),
+	)
+	_, err := txn.Commit()
 	return err
 }
 
 func (c *etcdCluster) MarkJobCompleted(ctx context.Context, jobID string) error {
-	key := fmt.Sprintf("%s/jobs/%s/completed", c.Prefix(), jobID)
-	_, err := c.client.Put(ctx, key, time.Now().UTC().Format(time.RFC3339Nano))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	statusKey := fmt.Sprintf("%s/jobs/%s/status", c.Prefix(), jobID)
+	completedKey := fmt.Sprintf("%s/jobs/%s/completed", c.Prefix(), jobID)
+
+	txn := c.client.Txn(ctx).Then(
+		clientv3.OpPut(completedKey, now),
+		clientv3.OpPut(statusKey, string(JobStateCompleted)),
+	)
+	_, err := txn.Commit()
 	return err
 }
 
@@ -142,8 +175,15 @@ func (c *etcdCluster) CancelJob(ctx context.Context, jobID string) error {
 	if err != nil {
 		return err // or ignore if not found
 	}
-	key := fmt.Sprintf("%s/jobs/%s/cancelled", c.Prefix(), jobID)
-	_, err = c.client.Put(ctx, key, time.Now().UTC().Format(time.RFC3339Nano))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	statusKey := fmt.Sprintf("%s/jobs/%s/status", c.Prefix(), jobID)
+	cancelledKey := fmt.Sprintf("%s/jobs/%s/cancelled", c.Prefix(), jobID)
+
+	txn := c.client.Txn(ctx).Then(
+		clientv3.OpPut(cancelledKey, now),
+		clientv3.OpPut(statusKey, string(JobStateCancelled)),
+	)
+	_, err = txn.Commit()
 	return err
 }
 

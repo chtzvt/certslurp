@@ -12,6 +12,12 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
+type WorkerInfo struct {
+	ID       string
+	Host     string
+	LastSeen time.Time
+}
+
 func (c *etcdCluster) RegisterWorker(ctx context.Context, info WorkerInfo) (string, error) {
 	workerID := info.ID
 	if workerID == "" {

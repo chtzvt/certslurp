@@ -387,15 +387,24 @@ func (c *etcdCluster) ReportShardDone(ctx context.Context, jobID string, shardID
 	manifest.DoneAt = time.Now().UTC()
 	manBytes, _ := json.Marshal(manifest)
 
-	txn := c.client.Txn(ctx).Then(
-		clientv3.OpPut(doneKey, string(manBytes)),
-		clientv3.OpDelete(assignmentKey),
-		clientv3.OpDelete(inProgressKey),
-		clientv3.OpDelete(retriesKey),
-		clientv3.OpDelete(backoffKey),
-	)
-	_, err := txn.Commit()
-	return err
+	txn := c.client.Txn(ctx).
+		If(clientv3.Compare(clientv3.Version(doneKey), "=", 0)).
+		Then(
+			clientv3.OpPut(doneKey, string(manBytes)),
+			clientv3.OpDelete(assignmentKey),
+			clientv3.OpDelete(inProgressKey),
+			clientv3.OpDelete(retriesKey),
+			clientv3.OpDelete(backoffKey),
+		)
+
+	txnResp, err := txn.Commit()
+	if err != nil {
+		return err
+	}
+	if !txnResp.Succeeded {
+		return fmt.Errorf("shard %d already marked done", shardID)
+	}
+	return nil
 }
 
 func (c *etcdCluster) FindOrphanedShards(ctx context.Context, jobID string) ([]int, error) {

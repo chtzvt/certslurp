@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"context"
-	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/job"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -14,7 +13,7 @@ type Cluster interface {
 	ListJobs(ctx context.Context) ([]JobInfo, error)
 	GetJob(ctx context.Context, jobID string) (*JobInfo, error)
 	GetClusterStatus(ctx context.Context) (*ClusterStatus, error)
-	UpdateJobStatus(ctx context.Context, jobID, status string) error
+	UpdateJobStatus(ctx context.Context, jobID string, status JobState) error
 	MarkJobStarted(ctx context.Context, jobID string) error
 	MarkJobCompleted(ctx context.Context, jobID string) error
 	CancelJob(ctx context.Context, jobID string) error
@@ -38,20 +37,4 @@ type Cluster interface {
 	Prefix() string
 	Client() *clientv3.Client
 	Close() error
-}
-
-type JobInfo struct {
-	ID        string       `json:"id"`
-	Spec      *job.JobSpec `json:"spec"`
-	Submitted time.Time    `json:"submitted"`
-	Started   time.Time    `json:"started,omitempty"`
-	Completed time.Time    `json:"completed,omitempty"`
-	Status    string       `json:"status"`
-	Cancelled time.Time    `json:"cancelled,omitempty"`
-}
-
-type WorkerInfo struct {
-	ID       string
-	Host     string
-	LastSeen time.Time
 }
