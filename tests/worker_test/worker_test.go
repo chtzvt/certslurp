@@ -23,7 +23,7 @@ func TestWorkerE2EJobCompletion(t *testing.T) {
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	workers := testutil.RunWorkers(ctx, t, cl, jobID, 2, logger)
+	workers := testworkers.RunWorkers(ctx, t, cl, jobID, 2, logger)
 
 	testutil.WaitFor(t, func() bool {
 		return testutil.AllShardsDone(t, cl, jobID)
@@ -43,7 +43,7 @@ func TestE2E_JobHappyPath(t *testing.T) {
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	workers := testutil.RunWorkers(ctx, t, cl, jobID, 2, logger)
+	workers := testworkers.RunWorkers(ctx, t, cl, jobID, 2, logger)
 	testutil.WaitFor(t, func() bool {
 		return testutil.AllShardsDone(t, cl, jobID)
 	}, 5*time.Second, 100*time.Millisecond, "job should complete")
@@ -139,7 +139,7 @@ func TestCluster_LargeScaleStress(t *testing.T) {
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	workers := testutil.RunWorkers(ctx, t, cl, jobID, workerCount, logger)
+	workers := testworkers.RunWorkers(ctx, t, cl, jobID, workerCount, logger)
 	testutil.WaitFor(t, func() bool {
 		return testutil.AllShardsDone(t, cl, jobID)
 	}, 18*time.Second, 300*time.Millisecond, "large job should complete")

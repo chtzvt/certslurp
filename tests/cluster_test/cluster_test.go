@@ -64,7 +64,7 @@ func TestCluster_CompactionSafety(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	workers := testutil.RunWorkers(ctx, t, cl, jobID, 5, logger)
+	workers := testworkers.RunWorkers(ctx, t, cl, jobID, 5, logger)
 	testutil.WaitFor(t, func() bool {
 		return testutil.AllShardsDone(t, cl, jobID)
 	}, 8*time.Second, 200*time.Millisecond, "shards should finish")
@@ -75,7 +75,7 @@ func TestCluster_CompactionSafety(t *testing.T) {
 
 	// Submit another job, process, check that cluster is still healthy
 	jobID2 := testutil.SubmitTestJob(t, cl, ts.URL, 3)
-	workers2 := testutil.RunWorkers(ctx, t, cl, jobID2, 2, logger)
+	workers2 := testworkers.RunWorkers(ctx, t, cl, jobID2, 2, logger)
 	testutil.WaitFor(t, func() bool {
 		return testutil.AllShardsDone(t, cl, jobID2)
 	}, 5*time.Second, 100*time.Millisecond, "second job should also complete")

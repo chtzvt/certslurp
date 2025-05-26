@@ -170,7 +170,7 @@ func TestCluster_JobStatusTransitions(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, jobInfo.Status == cluster.JobStatePending)
 
-	workers := testutil.RunWorkers(ctx, t, cl, jobID, 2, logger)
+	workers := testworkers.RunWorkers(ctx, t, cl, jobID, 2, logger)
 
 	testutil.WaitFor(t, func() bool {
 		s, _ := cl.GetJob(ctx, jobID)

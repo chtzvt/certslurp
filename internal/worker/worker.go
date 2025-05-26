@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
+	"github.com/chtzvt/ctsnarf/internal/etl"
 	"github.com/chtzvt/ctsnarf/internal/job"
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
@@ -270,18 +271,37 @@ func (w *Worker) processShardLoop(ctx context.Context, shardID int) {
 		w.Metrics.IncFailed()
 		return
 	}
-	outputPath, err := w.WriteOutput(matches, shardID)
+	// Create ETL pipeline for this shard
+	pipeline, err := etl.NewPipeline(job.Spec, w.Cluster.Secrets(), fmt.Sprintf("job-%s-shard-%d", w.JobID, shardID))
 	if err != nil {
+		w.Logger.Printf("etl pipeline init failed: %v", err)
 		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
 		w.Metrics.IncFailed()
 		return
 	}
-	man := cluster.ShardManifest{OutputPath: outputPath}
-	if err := w.Cluster.ReportShardDone(ctx, w.JobID, shardID, man); err != nil {
+
+	// Pipe entries into the pipeline
+	entries := make(chan *ct.RawLogEntry, len(matches))
+	for _, e := range matches {
+		entries <- e
+	}
+	close(entries)
+	if err := pipeline.StreamProcess(ctx, entries); err != nil {
+		w.Logger.Printf("etl process failed: %v", err)
+		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
+		w.Metrics.IncFailed()
+		return
+	}
+
+	// If you want to capture chunk info for the manifest, you can extend the pipeline and stub for that purpose
+	manifest := cluster.ShardManifest{}
+	// e.g. manifest.OutputChunks = pipeline.OutputFiles() (if you want)
+	// Or just set OutputPath to a well-known prefix if needed
+	if err := w.Cluster.ReportShardDone(ctx, w.JobID, shardID, manifest); err != nil {
 		w.Logger.Printf("report done failed: %v", err)
 		w.Metrics.IncFailed()
 		return
 	}
 	w.Metrics.IncProcessed()
-	w.Logger.Printf("shard %d completed (%d matches, %s)", shardID, len(matches), outputPath)
+	w.Logger.Printf("shard %d completed (%d matches)", shardID, len(matches))
 }
