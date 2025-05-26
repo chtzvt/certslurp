@@ -5,6 +5,58 @@ import (
 	"testing"
 )
 
+func TestLoadJobSpecJSON(t *testing.T) {
+	jobJSON := `
+{
+	"type": "ctsnarf:job",
+	"id": "1234-5678",
+	"version": "1.0.0",
+	"note": "Sample job spec",
+	"log_uri": "https://ct.googleapis.com/aviator",
+	"options": {
+		"fetch": {
+			"batch_size": 1000,
+			"workers": 2,
+			"index_start": 0,
+			"index_end": 0
+		},
+		"match": {
+			"subject_regex": ".*google.com"
+		},
+		"output": {
+			"extractor": "cert_fields",
+			"extractor_options": {"fields": ["subject", "issuer"]},
+			"transformer": "jsonl",
+			"transformer_options": {"pretty": true},
+			"sink": "disk",
+			"sink_options": {"path": "/tmp/ctsnarf-out", "compression": "gzip"}
+		}
+	}
+}`
+
+	spec, err := Load(strings.NewReader(jobJSON))
+	if err != nil {
+		t.Fatalf("Failed to load job spec: %v", err)
+	}
+
+	if spec.Version != "1.0.0" {
+		t.Errorf("expected version 1.0.0, got %s", spec.Version)
+	}
+	if spec.Options.Output.Extractor != "cert_fields" {
+		t.Errorf("wrong extractor: got %s", spec.Options.Output.Extractor)
+	}
+	if spec.Options.Output.Transformer != "jsonl" {
+		t.Errorf("wrong transformer: got %s", spec.Options.Output.Transformer)
+	}
+	if spec.Options.Output.Sink != "disk" {
+		t.Errorf("wrong sink: got %s", spec.Options.Output.Sink)
+	}
+	// Check nested option is accessible
+	if val, ok := spec.Options.Output.ExtractorOptions["fields"]; !ok || val == nil {
+		t.Errorf("extractor_options.fields missing or nil")
+	}
+}
+
 func TestJobLoadAndValidate(t *testing.T) {
 	const minimal = `{
 		"version": "0.1.0",
