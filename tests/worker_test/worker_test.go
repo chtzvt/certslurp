@@ -2,90 +2,102 @@ package worker_test
 
 import (
 	"context"
+	"log"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
 	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/chtzvt/ctsnarf/internal/worker"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
 func setupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
+	t.Helper()
+
 	cfg := embed.NewConfig()
 	cfg.Dir = t.TempDir()
 	cfg.Logger = "zap"
 	cfg.LogLevel = "error"
+
 	e, err := embed.StartEtcd(cfg)
 	require.NoError(t, err)
+
 	select {
 	case <-e.Server.ReadyNotify():
 	case <-time.After(10 * time.Second):
-		t.Fatal("etcd not ready")
+		t.Fatal("etcd server did not become ready in time")
 	}
+
 	cl, err := cluster.NewEtcdCluster(cluster.EtcdConfig{
 		Endpoints:   []string{e.Clients[0].Addr().String()},
 		DialTimeout: 2 * time.Second,
-		Prefix:      "/ctsnarf_worker_test",
+		Prefix:      "/ctsnarf_test",
 	})
 	require.NoError(t, err)
+
 	cleanup := func() {
-		cl.Close()
+		_ = cl.Close()
 		e.Close()
 	}
 	return cl, cleanup
 }
 
 func TestWorkerE2EJobCompletion(t *testing.T) {
+	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
+	defer ts.Close()
+
 	cl, cleanup := setupEtcdCluster(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	spec := &job.JobSpec{
 		Version: "0.1.0",
-		LogURI:  "https://ct.googleapis.com/aviator",
-		Options: job.JobOptions{},
+		LogURI:  ts.URL,
+		Options: job.JobOptions{
+			Fetch: job.FetchConfig{
+				BatchSize:  8,
+				Workers:    1,
+				IndexStart: 0,
+				IndexEnd:   4,
+			},
+		},
 	}
 	jobID, err := cl.SubmitJob(ctx, spec)
 	require.NoError(t, err)
 	require.NotEmpty(t, jobID)
 
-	// Create 5 shards for the job
-	numShards := 5
+	// Create 5 shards for the job (update as appropriate for the stub data)
+	numShards := 2
 	ranges := make([]cluster.ShardRange, numShards)
 	for i := 0; i < numShards; i++ {
 		ranges[i] = cluster.ShardRange{
 			ShardID:   i,
-			IndexFrom: int64(i * 100),
-			IndexTo:   int64((i + 1) * 100),
+			IndexFrom: int64(i * 2),
+			IndexTo:   int64((i + 1) * 2),
 		}
 	}
 	require.NoError(t, cl.BulkCreateShards(ctx, jobID, ranges))
 
-	// Start 2 workers (goroutines)
+	// Start 2 workers
 	workerCount := 2
-	stopCh := make(chan struct{})
-	doneCh := make(chan struct{})
+	doneCh := make(chan struct{}, workerCount)
+	workers := make([]*worker.Worker, workerCount)
+	var logger = log.New(os.Stderr, "[worker] ", log.LstdFlags)
+
 	for i := 0; i < workerCount; i++ {
-		go func(i int) {
-			w, err := worker.New(worker.WorkerConfig{
-				Cluster:    cl,
-				WorkerInfo: cluster.WorkerInfo{Host: "workerhost"},
-				JobID:      jobID,
-				PollDelay:  100 * time.Millisecond,
-				LeaseTTL:   2 * time.Second,
-				Logf: func(format string, args ...interface{}) {
-					// t.Logf(format, args...) // Uncomment for debug output
-				},
-			})
-			require.NoError(t, err)
-			_ = w.Run() // Runs until all shards are processed or test ends
+		id := "worker-" + string(rune('A'+i))
+		w := worker.NewWorker(cl, jobID, id, logger)
+		workers[i] = w
+		go func(w *worker.Worker) {
+			_ = w.Run(ctx)
 			doneCh <- struct{}{}
-		}(i)
+		}(w)
 	}
 
-	// Wait for job to complete or timeout
 	timeout := time.After(10 * time.Second)
 	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
@@ -108,14 +120,13 @@ loop:
 			}
 		}
 	}
-
 	// Stop workers
-	close(stopCh)
+	for _, w := range workers {
+		w.Stop()
+	}
 	for i := 0; i < workerCount; i++ {
 		<-doneCh
 	}
-
-	// Final check: all shards should be done (not failed)
 	assignments, err := cl.GetShardAssignments(ctx, jobID)
 	require.NoError(t, err)
 	for shardID, stat := range assignments {

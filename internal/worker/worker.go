@@ -270,7 +270,7 @@ func (w *Worker) processShardLoop(ctx context.Context, shardID int) {
 		w.Metrics.IncFailed()
 		return
 	}
-	outputPath, err := w.WriteOutput(matches)
+	outputPath, err := w.WriteOutput(matches, shardID)
 	if err != nil {
 		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
 		w.Metrics.IncFailed()
