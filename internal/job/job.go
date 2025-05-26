@@ -6,8 +6,6 @@ import (
 	"io"
 	"os"
 	"strings"
-
-	"github.com/chtzvt/ctsnarf/internal/output"
 )
 
 type JobSpec struct {
@@ -24,8 +22,12 @@ type JobOptions struct {
 }
 
 type OutputOptions struct {
-	Transformer output.TransformerConfig `json:"transformer"`
-	Target      output.TargetConfig      `json:"target"`
+	Extractor          string                 `json:"extractor"`
+	ExtractorOptions   map[string]interface{} `json:"extractor_options"`
+	Transformer        string                 `json:"transformer"`
+	TransformerOptions map[string]interface{} `json:"transformer_options"`
+	Sink               string                 `json:"sink"`
+	SinkOptions        map[string]interface{} `json:"sink_options"`
 }
 
 func LoadFromFile(path string) (*JobSpec, error) {
@@ -64,10 +66,13 @@ func (j *JobSpec) Validate() error {
 	if j.Options.Fetch.Workers <= 0 {
 		missing = append(missing, "options.fetch.workers")
 	}
-	if j.Options.Output.Transformer.Name == "" {
+	if j.Options.Output.Extractor == "" {
+		missing = append(missing, "options.output.extractor")
+	}
+	if j.Options.Output.Transformer == "" {
 		missing = append(missing, "options.output.transformer")
 	}
-	if j.Options.Output.Target.Name == "" {
+	if j.Options.Output.Sink == "" {
 		missing = append(missing, "options.output.target")
 	}
 

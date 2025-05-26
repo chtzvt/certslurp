@@ -263,8 +263,8 @@ const (
 		"YxdAfvDbbnvRG15RjF+Cv6pgsH/76tuIMRQyV+dTZsXjAzlAcmgQWpzU/qlULRuJQ/7TBj0/VLZjmmx6" +
 		"BEP3ojY+x1J96relc8geMJgEtslQIxq/H5COEBkEveegeGTLg==\"}]}"
 
-	// Entry0 is first entry.
-	Entry0 = "AAAAAAE9pCDoYwAAAAOGMIIDgjCCAuugAwIBAgIKFIT5BQAA" +
+	// CTLogEntry0 is first entry.
+	CTLogEntry0 = "AAAAAAE9pCDoYwAAAAOGMIIDgjCCAuugAwIBAgIKFIT5BQAA" +
 		"AAB9PDANBgkqhkiG9w0BAQUFADBGMQswCQYDVQQGEwJVUzETMBEGA1UEChMKR29vZ2xlIEluYzEiMCAG" +
 		"A1UEAxMZR29vZ2xlIEludGVybmV0IEF1dGhvcml0eTAeFw0xMzAyMjAxMzM0NTFaFw0xMzA2MDcxOTQz" +
 		"MjdaMGkxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQHEw1Nb3VudGFpbiBW" +
@@ -281,8 +281,8 @@ const (
 		"aMlO5wj2wf8qPWABDRwHdb4mdSmRMuwhzCJhE3PceXLNf3pOlR/Prt18mDY/r6cLwfldIXgTOYkw/uck" +
 		"Gwvb0BwMsEi2FDE/T3d3SOo+lHvqPX9sOVa2uyA0wmIYnbT+5uQY6m0AAA=="
 
-	// Entry1 is second entry.
-	Entry1 = "AAAAAAE9pe0GcwAAAATWMIIE0jCCA7qgAwIBAgIDAPY6MA0GCS" +
+	// CTLogEntry1 is second entry.
+	CTLogEntry1 = "AAAAAAE9pe0GcwAAAATWMIIE0jCCA7qgAwIBAgIDAPY6MA0GCS" +
 		"qGSIb3DQEBBQUAMEAxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5HZW9UcnVzdCwgSW5jLjEYMBYGA1UEAx" +
 		"MPR2VvVHJ1c3QgU1NMIENBMB4XDTExMTAyMTExMDUwNloXDTEzMTEyMjA0MzI0N1owgc4xKTAnBgNVBA" +
 		"UTIFRqbGZoUTB0cXp3WmtNa0svNXFNdGZqbjJ6aWRVNzRoMQswCQYDVQQGEwJVUzEXMBUGA1UECBMOU2" +
@@ -305,8 +305,8 @@ const (
 		"/OcZJtsiGhtu2s9F910OBpoU+lhnPylwxOf4k35JcLaqHJ3BbLUtybbduNqtf3+sYhkvp5IcCypoJy/R" +
 		"k4fHgD8VTNiNWj7KGuHRYAAA=="
 
-	// Entry2 is third entry.
-	Entry2 = "AAAAAAE9pe0GcwAAAATjMIIE3zCCA8egAwIBAgIUCimKXmNJ+wiDS2zJvg6LC2cvr" +
+	// CTLogEntry2 is third entry.
+	CTLogEntry2 = "AAAAAAE9pe0GcwAAAATjMIIE3zCCA8egAwIBAgIUCimKXmNJ+wiDS2zJvg6LC2cvr" +
 		"vQwDQYJKoZIhvcNAQEFBQAwWjELMAkGA1UEBhMCSlAxIzAhBgNVBAoMGkN5YmVydHJ1c3QgSmFwYW4gQ" +
 		"28uLCBMdGQuMSYwJAYDVQQDDB1DeWJlcnRydXN0IEphcGFuIFB1YmxpYyBDQSBHMjAeFw0xMjAzMTkwM" +
 		"zE0MzNaFw0xNTAzMzExNDU5MDBaMIGKMQswCQYDVQQGEwJKUDEOMAwGA1UECBMFVG9reW8xEDAOBgNVB" +
@@ -329,8 +329,8 @@ const (
 		"gcnk0a7ZVy3d4yTjdhKpocToFklhHtHg0AINghPXIqU0njjUsy3ujNYIYo1TaZ3835Bo0lDwdvKK68Jk" +
 		"a24Cfcm+vfUfHKB56sIzquxAAA="
 
-	// Entry3 is fourth entry.
-	Entry3 = "AAAAAAE9pe0GdAAAAAWmMIIFojCCBIqgAwIBAgISESE1Pz3s7WxTnxbUXmwjh7Q" +
+	// CTLogEntry3 is fourth entry.
+	CTLogEntry3 = "AAAAAAE9pe0GdAAAAAWmMIIFojCCBIqgAwIBAgISESE1Pz3s7WxTnxbUXmwjh7Q" +
 		"hMA0GCSqGSIb3DQEBBQUAMFkxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9iYWxTaWduIG52LXNhMS8" +
 		"wLQYDVQQDEyZHbG9iYWxTaWduIEV4dGVuZGVkIFZhbGlkYXRpb24gQ0EgLSBHMjAeFw0xMTEwMTAxNDE" +
 		"2MzdaFw0xMzEwMTAxNDE2MzdaMIHpMR0wGwYDVQQPDBRQcml2YXRlIE9yZ2FuaXphdGlvbjERMA8GA1U" +
@@ -372,22 +372,22 @@ func makeParent(a []byte, b []byte) [sha256.Size]byte {
 
 // CalcRootHash calculates the root hash for the test data.
 func CalcRootHash() {
-	e0, err := base64.StdEncoding.DecodeString(Entry0)
+	e0, err := base64.StdEncoding.DecodeString(CTLogEntry0)
 	if err != nil {
 		log.Fatal(err)
 	}
 	h0 := sha256.Sum256(e0)
-	e1, err := base64.StdEncoding.DecodeString(Entry1)
+	e1, err := base64.StdEncoding.DecodeString(CTLogEntry1)
 	if err != nil {
 		log.Fatal(err)
 	}
 	h1 := sha256.Sum256(e1)
-	e2, err := base64.StdEncoding.DecodeString(Entry2)
+	e2, err := base64.StdEncoding.DecodeString(CTLogEntry2)
 	if err != nil {
 		log.Fatal(err)
 	}
 	h2 := sha256.Sum256(e2)
-	e3, err := base64.StdEncoding.DecodeString(Entry3)
+	e3, err := base64.StdEncoding.DecodeString(CTLogEntry3)
 	if err != nil {
 		log.Fatal(err)
 	}
