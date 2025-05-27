@@ -20,7 +20,7 @@ func RunWorkers(ctx context.Context, t *testing.T, cl cluster.Cluster, jobID str
 	workers := make([]*worker.Worker, workerCount)
 	for i := 0; i < workerCount; i++ {
 		id := "worker-" + testutil.RandString(5)
-		w := worker.NewWorker(cl, jobID, id, logger)
+		w := worker.NewWorker(cl, id, logger)
 		workers[i] = w
 		wg.Add(1)
 		go func(w *worker.Worker) {

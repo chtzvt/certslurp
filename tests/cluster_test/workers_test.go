@@ -45,7 +45,7 @@ func TestCluster_RapidWorkerChurn(t *testing.T) {
 
 	workerCount := 5
 	for i := 0; i < workerCount; i++ {
-		w := worker.NewWorker(cl, jobID, fmt.Sprintf("churn-%d", i), logger)
+		w := worker.NewWorker(cl, fmt.Sprintf("churn-%d", i), logger)
 		go func(w *worker.Worker) {
 			for j := 0; j < 3; j++ { // Start/stop each worker multiple times
 				wCtx, cancel := context.WithTimeout(ctx, time.Duration(500+100*j)*time.Millisecond)

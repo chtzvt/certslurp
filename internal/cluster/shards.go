@@ -415,7 +415,8 @@ func (c *etcdCluster) FindOrphanedShards(ctx context.Context, jobID string) ([]i
 	now := time.Now().UTC()
 	orphaned := []int{}
 	for id, s := range shards {
-		if s.Assigned && !s.Done && s.LeaseExpiry.Before(now) {
+		// Orphaned if: never assigned OR (was assigned but lease expired), and not done
+		if (!s.Assigned || (s.Assigned && !s.Done && s.LeaseExpiry.Before(now))) && !s.Done {
 			orphaned = append(orphaned, id)
 		}
 	}

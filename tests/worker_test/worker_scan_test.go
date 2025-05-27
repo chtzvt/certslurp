@@ -43,7 +43,7 @@ func TestWorker_StreamShard_StubbedCTLog(t *testing.T) {
 	cluster, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 
-	w := worker.NewWorker(cluster, "testjob", "worker-1", nil)
+	w := worker.NewWorker(cluster, "worker-1", nil)
 
 	ctx := context.Background()
 	entriesCh := make(chan *ct.RawLogEntry, 10)

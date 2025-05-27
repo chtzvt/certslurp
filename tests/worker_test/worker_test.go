@@ -70,7 +70,7 @@ func TestCluster_WorkerFailureRecovery(t *testing.T) {
 	workers := make([]*worker.Worker, workerCount)
 	killed := int32(0)
 	for i := 0; i < workerCount; i++ {
-		w := worker.NewWorker(cl, jobID, fmt.Sprintf("fail-%d", i), logger)
+		w := worker.NewWorker(cl, fmt.Sprintf("fail-%d", i), logger)
 		workers[i] = w
 		go func(idx int, w *worker.Worker) {
 			workerCtx, cancel := context.WithCancel(ctx)
