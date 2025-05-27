@@ -27,8 +27,10 @@ type Cluster interface {
 
 	// Shard orchestration
 	BulkCreateShards(ctx context.Context, jobID string, ranges []ShardRange) error
+	GetShardCount(ctx context.Context, jobID string) (int, error)
 	AssignShard(ctx context.Context, jobID string, shardID int, workerID string) error
 	GetShardAssignments(ctx context.Context, jobID string) (map[int]ShardAssignmentStatus, error)
+	GetShardAssignmentsWindow(ctx context.Context, jobID string, start, end int) (map[int]ShardAssignmentStatus, error)
 	GetShardStatus(ctx context.Context, jobID string, shardID int) (ShardStatus, error)
 	ReportShardDone(ctx context.Context, jobID string, shardID int, manifest ShardManifest) error
 	ReportShardFailed(ctx context.Context, jobID string, shardID int) error

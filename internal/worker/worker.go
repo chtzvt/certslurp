@@ -177,27 +177,101 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 	}
 	now := time.Now()
 	claimable := make([]ShardRef, 0, batchSize)
+	const windowSize = 128
+	const maxEmptyWindows = 8
+
+	randShuffle := func(refs []ShardRef) []ShardRef {
+		rand.Shuffle(len(refs), func(i, j int) {
+			refs[i], refs[j] = refs[j], refs[i]
+		})
+		return refs
+	}
+
 	for _, job := range jobs {
-		assignments, err := w.Cluster.GetShardAssignments(ctx, job.ID)
-		if err != nil {
+		shardCount, err := w.Cluster.GetShardCount(ctx, job.ID)
+		if err != nil || shardCount == 0 {
 			continue
 		}
-		for sID, stat := range assignments {
-			if !stat.Assigned && !stat.Done && !stat.Failed &&
-				(stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
-				claimable = append(claimable, ShardRef{JobID: job.ID, ShardID: sID})
-				if len(claimable) >= batchSize {
-					return claimable
+		emptyWindows := 0
+		checked := map[int]struct{}{}
+		lastWindowScanned := false
+
+		for {
+			// Fallback: scan ALL
+			if shardCount < windowSize || emptyWindows >= maxEmptyWindows {
+				window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, 0, shardCount)
+				if len(claimable) < batchSize {
+					var stuck []int
+					for sID, stat := range window {
+						if !stat.Done && !stat.Failed && !stat.Assigned && (stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
+							stuck = append(stuck, sID)
+						}
+					}
+				}
+				if err != nil {
+					break
+				}
+				for sID, stat := range window {
+					if _, alreadyChecked := checked[sID]; !alreadyChecked && !stat.Assigned && !stat.Done && !stat.Failed &&
+						(stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
+						claimable = append(claimable, ShardRef{JobID: job.ID, ShardID: sID})
+						if len(claimable) >= batchSize {
+							return randShuffle(claimable)
+						}
+					}
+				}
+				break
+			}
+
+			// Standard random window
+			offset := rand.Intn(shardCount - windowSize + 1)
+			window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, offset, offset+windowSize)
+			if err != nil {
+				break
+			}
+			found := false
+			for sID, stat := range window {
+				checked[sID] = struct{}{}
+				if !stat.Assigned && !stat.Done && !stat.Failed &&
+					(stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
+					claimable = append(claimable, ShardRef{JobID: job.ID, ShardID: sID})
+					if len(claimable) >= batchSize {
+						return randShuffle(claimable)
+					}
+					found = true
+				}
+			}
+			if found {
+				break
+			}
+			emptyWindows++
+
+			// Ensure we always explicitly check the final window at least once
+			if !lastWindowScanned && shardCount > windowSize {
+				lastWindowScanned = true
+				offset := shardCount - windowSize
+				window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, offset, shardCount)
+				if err == nil {
+					for sID, stat := range window {
+						checked[sID] = struct{}{}
+						if !stat.Assigned && !stat.Done && !stat.Failed &&
+							(stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
+							claimable = append(claimable, ShardRef{JobID: job.ID, ShardID: sID})
+							if len(claimable) >= batchSize {
+								return randShuffle(claimable)
+							}
+							found = true
+						}
+					}
+					if found {
+						break
+					}
 				}
 			}
 		}
 	}
 
-	rand.Shuffle(len(claimable), func(i, j int) {
-		claimable[i], claimable[j] = claimable[j], claimable[i]
-	})
-
-	return claimable
+	return randShuffle(claimable)
 }
 
 // tryAssignShardWithRetry tries to assign a shard with retries on race/assignment contention.
@@ -208,6 +282,7 @@ func (w *Worker) tryAssignShardWithRetry(ctx context.Context, jobID string, shar
 		if err == nil {
 			return nil
 		}
+
 		// Recognize assignment-race or already assigned errors
 		msg := err.Error()
 		if strings.Contains(msg, "assignment race") ||

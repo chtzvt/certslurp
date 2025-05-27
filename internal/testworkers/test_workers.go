@@ -2,13 +2,13 @@ package testworkers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
-	"github.com/chtzvt/ctsnarf/internal/testcluster"
 	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/chtzvt/ctsnarf/internal/worker"
 )
@@ -21,6 +21,9 @@ func RunWorkers(ctx context.Context, t *testing.T, cl cluster.Cluster, jobID str
 	for i := 0; i < workerCount; i++ {
 		id := "worker-" + testutil.RandString(5)
 		w := worker.NewWorker(cl, id, logger)
+		// Aggressive settings for testing
+		w.PollPeriod = 50 * time.Millisecond
+		w.BatchSize = 32
 		workers[i] = w
 		wg.Add(1)
 		go func(w *worker.Worker) {
@@ -35,7 +38,19 @@ func RunWorkers(ctx context.Context, t *testing.T, cl cluster.Cluster, jobID str
 			case <-ctx.Done():
 				return
 			default:
-				if testcluster.AllShardsDone(t, cl, jobID) {
+				assignments, _ := cl.GetShardAssignments(context.Background(), jobID)
+				unfinished := 0
+				for _, stat := range assignments {
+					if !stat.Done && !stat.Failed {
+						unfinished++
+					}
+				}
+
+				if testing.Verbose() {
+					fmt.Printf("Shards remaining: %d\n", unfinished)
+				}
+
+				if unfinished == 0 {
 					_ = cl.MarkJobCompleted(ctx, jobID)
 					_ = cl.UpdateJobStatus(ctx, jobID, cluster.JobStateCompleted)
 					return

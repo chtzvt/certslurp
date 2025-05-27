@@ -6,6 +6,7 @@ import (
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
 	"github.com/chtzvt/ctsnarf/internal/testcluster"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBulkCreateAndGetShardStatus(t *testing.T) {
@@ -41,4 +42,30 @@ func TestBulkCreateAndGetShardStatus(t *testing.T) {
 			t.Errorf("Shard %d should not be done/failed yet", s.ShardID)
 		}
 	}
+}
+
+func TestBulkCreateShards_SetsShardCountOnce(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	jobID := "countjob"
+	shards := []cluster.ShardRange{
+		{ShardID: 0, IndexFrom: 0, IndexTo: 100},
+		{ShardID: 1, IndexFrom: 100, IndexTo: 200},
+		{ShardID: 2, IndexFrom: 200, IndexTo: 300},
+	}
+	// First call: should store shard count
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, shards))
+	count, err := cl.GetShardCount(ctx, jobID)
+	require.NoError(t, err)
+	require.Equal(t, 3, count)
+
+	// Second call: count should NOT change, even if you try with fewer shards (should remain at first set)
+	lessShards := []cluster.ShardRange{
+		{ShardID: 0, IndexFrom: 0, IndexTo: 100},
+	}
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, lessShards))
+	count2, err := cl.GetShardCount(ctx, jobID)
+	require.NoError(t, err)
+	require.Equal(t, 3, count2)
 }

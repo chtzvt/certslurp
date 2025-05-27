@@ -65,6 +65,10 @@ type ShardRange struct {
 	IndexTo   int64 // exclusive
 }
 
+func ShardKey(prefix, jobID string, shardID int) string {
+	return fmt.Sprintf("%s/jobs/%s/shards/%06d", prefix, jobID, shardID)
+}
+
 // BulkCreateShards creates multiple shard manifests in a single atomic etcd operation.
 // If any already exist, they're skipped (idempotent).
 func (c *etcdCluster) BulkCreateShards(ctx context.Context, jobID string, ranges []ShardRange) error {
@@ -80,7 +84,7 @@ func (c *etcdCluster) BulkCreateShards(ctx context.Context, jobID string, ranges
 		puts := []clientv3.Op{}
 
 		for _, rng := range ranges[start:end] {
-			base := fmt.Sprintf("%s/jobs/%s/shards/%d", c.Prefix(), jobID, rng.ShardID)
+			base := ShardKey(c.Prefix(), jobID, rng.ShardID)
 			rangeKey := base + "/range"
 			// Only put if doesn't exist
 			cmps = append(cmps, clientv3.Compare(clientv3.Version(rangeKey), "=", 0))
@@ -94,10 +98,96 @@ func (c *etcdCluster) BulkCreateShards(ctx context.Context, jobID string, ranges
 			return err
 		}
 	}
+
+	// Store the shard count for the job (only if these are the first shards created)
+	shardCountKey := fmt.Sprintf("%s/jobs/%s/shard_count", c.Prefix(), jobID)
+	resp, err := c.client.Get(ctx, shardCountKey)
+	if err != nil {
+		return fmt.Errorf("error updating shard count: %v", err)
+	}
+
+	if len(resp.Kvs) == 0 {
+		_, _ = c.client.Put(ctx, shardCountKey, fmt.Sprintf("%d", len(ranges)))
+	}
+
 	return nil
 }
 
+func (c *etcdCluster) GetShardCount(ctx context.Context, jobID string) (int, error) {
+	key := fmt.Sprintf("%s/jobs/%s/shard_count", c.Prefix(), jobID)
+	resp, err := c.client.Get(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	if len(resp.Kvs) == 0 {
+		return 0, nil
+	}
+	return strconv.Atoi(string(resp.Kvs[0].Value))
+}
+
+// GetShardAssignmentsWindow fetches only a window/range of shard statuses for a job:
+func (c *etcdCluster) GetShardAssignmentsWindow(ctx context.Context, jobID string, start, end int) (map[int]ShardAssignmentStatus, error) {
+	statusMap := make(map[int]ShardAssignmentStatus)
+	// Compose start and end keys (etcd range is [start, end))
+	startKey := ShardKey(c.Prefix(), jobID, start)
+	endKey := ShardKey(c.Prefix(), jobID, end)
+
+	resp, err := c.client.Get(ctx, startKey, clientv3.WithRange(endKey))
+	if err != nil {
+		return nil, err
+	}
+
+	for _, kv := range resp.Kvs {
+		key := string(kv.Key)
+		parts := strings.Split(key, "/")
+		if len(parts) < 5 {
+			continue // Not a shard key
+		}
+		// Extract shard ID
+		shardID := 0
+		fmt.Sscanf(parts[len(parts)-2], "%d", &shardID)
+		subkey := parts[len(parts)-1]
+		stat := statusMap[shardID] // safe even if not present; zero value
+
+		stat.ShardID = shardID
+
+		switch subkey {
+		case "assignment":
+			stat.Assigned = true
+			var assign ShardAssignment
+			_ = json.Unmarshal(kv.Value, &assign)
+			stat.WorkerID = assign.WorkerID
+			stat.LeaseExpiry = assign.LeaseExpiry
+		case "done":
+			stat.Done = true
+			var man ShardManifest
+			_ = json.Unmarshal(kv.Value, &man)
+			stat.OutputPath = man.OutputPath
+			stat.Failed = man.Failed
+		case "failed":
+			stat.Failed = true
+		case "retries":
+			fmt.Sscanf(string(kv.Value), "%d", &stat.Retries)
+		case "backoff_until":
+			t, err := time.Parse(time.RFC3339Nano, string(kv.Value))
+			if err == nil {
+				stat.BackoffUntil = t
+			}
+		case "range":
+			var rng ShardRange
+			if err := json.Unmarshal(kv.Value, &rng); err == nil {
+				stat.IndexFrom = rng.IndexFrom
+				stat.IndexTo = rng.IndexTo
+			}
+		}
+		statusMap[shardID] = stat
+	}
+
+	return statusMap, nil
+}
+
 // GetShardAssignments returns a map of all shards (by shardID) to their assignment status.
+// Use with caution!
 func (c *etcdCluster) GetShardAssignments(ctx context.Context, jobID string) (map[int]ShardAssignmentStatus, error) {
 	prefix := fmt.Sprintf("%s/jobs/%s/shards/", c.Prefix(), jobID)
 	resp, err := c.client.Get(ctx, prefix, clientv3.WithPrefix())
@@ -114,8 +204,9 @@ func (c *etcdCluster) GetShardAssignments(ctx context.Context, jobID string) (ma
 		shardID := 0
 		fmt.Sscanf(parts[len(parts)-2], "%d", &shardID)
 		subkey := parts[len(parts)-1]
-		stat := statusMap[shardID]
 
+		// Always merge with existing, never overwrite
+		stat := statusMap[shardID]
 		stat.ShardID = shardID
 
 		switch subkey {
@@ -153,7 +244,7 @@ func (c *etcdCluster) GetShardAssignments(ctx context.Context, jobID string) (ma
 }
 
 func (c *etcdCluster) AssignShard(ctx context.Context, jobID string, shardID int, workerID string) error {
-	shardPrefix := fmt.Sprintf("%s/jobs/%s/shards/%d", c.Prefix(), jobID, shardID)
+	shardPrefix := ShardKey(c.Prefix(), jobID, shardID)
 	assignmentKey := shardPrefix + "/assignment"
 	doneKey := shardPrefix + "/done"
 	retriesKey := shardPrefix + "/retries"
@@ -243,7 +334,7 @@ func (c *etcdCluster) AssignShard(ctx context.Context, jobID string, shardID int
 }
 
 func (c *etcdCluster) GetShardStatus(ctx context.Context, jobID string, shardID int) (ShardStatus, error) {
-	base := fmt.Sprintf("%s/jobs/%s/shards/%d", c.Prefix(), jobID, shardID)
+	base := ShardKey(c.Prefix(), jobID, shardID)
 	keys := []string{
 		base + "/assignment",
 		base + "/done",
@@ -308,7 +399,7 @@ func (c *etcdCluster) GetShardStatus(ctx context.Context, jobID string, shardID 
 }
 
 func (c *etcdCluster) RequestShardSplit(ctx context.Context, jobID string, shardID int, newRanges []ShardRange) error {
-	shardPrefix := fmt.Sprintf("%s/jobs/%s/shards/%d", c.Prefix(), jobID, shardID)
+	shardPrefix := ShardKey(c.Prefix(), jobID, shardID)
 	splitKey := shardPrefix + "/split"
 
 	// Mark the original as "split" (prevents new assignment)
@@ -327,7 +418,7 @@ func (c *etcdCluster) RequestShardSplit(ctx context.Context, jobID string, shard
 }
 
 func (c *etcdCluster) ReportShardFailed(ctx context.Context, jobID string, shardID int) error {
-	shardPrefix := fmt.Sprintf("%s/jobs/%s/shards/%d", c.Prefix(), jobID, shardID)
+	shardPrefix := ShardKey(c.Prefix(), jobID, shardID)
 	retriesKey := shardPrefix + "/retries"
 	backoffKey := shardPrefix + "/backoff_until"
 	assignmentKey := shardPrefix + "/assignment"
@@ -377,7 +468,7 @@ func (c *etcdCluster) ReportShardFailed(ctx context.Context, jobID string, shard
 }
 
 func (c *etcdCluster) ReportShardDone(ctx context.Context, jobID string, shardID int, manifest ShardManifest) error {
-	shardPrefix := fmt.Sprintf("%s/jobs/%s/shards/%d", c.Prefix(), jobID, shardID)
+	shardPrefix := ShardKey(c.Prefix(), jobID, shardID)
 	assignmentKey := shardPrefix + "/assignment"
 	inProgressKey := shardPrefix + "/in_progress"
 	doneKey := shardPrefix + "/done"

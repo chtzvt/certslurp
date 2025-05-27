@@ -93,29 +93,21 @@ func AllShardsDone(t *testing.T, cl cluster.Cluster, jobID string) bool {
 		if !stat.Done && !stat.Failed {
 			return false
 		}
+
+		if testing.Verbose() {
+			incomplete := []int{}
+			for shardID, stat := range assignments {
+				if !stat.Done && !stat.Failed {
+					incomplete = append(incomplete, shardID)
+				}
+			}
+			if len(incomplete) > 0 {
+				fmt.Printf("Stuck, not done: %v\n", incomplete)
+			}
+		}
 	}
 	return true
 }
-
-/*func AllShardsDone(t *testing.T, cl cluster.Cluster, jobID string) bool {
-	t.Helper()
-	ctx := context.Background()
-	assignments, err := cl.GetShardAssignments(ctx, jobID)
-	require.NoError(t, err)
-
-	var stuck []int
-	for shardID, stat := range assignments {
-		if !stat.Done && !stat.Failed {
-			t.Logf("stuck shard %d: assigned=%v, leaseExpiry=%v, assignedTo=%v, backoff=%v, retries=%v", shardID, stat.Assigned, stat.LeaseExpiry, stat.WorkerID, stat.BackoffUntil, stat.Retries)
-			stuck = append(stuck, shardID)
-		}
-	}
-	if len(stuck) > 0 {
-		t.Logf("Shards not done or failed: %v", stuck)
-		return false
-	}
-	return true
-}*/
 
 // ExpireShardLease forcibly expires a shard lease for the given job/shard.
 func ExpireShardLease(t *testing.T, cl cluster.Cluster, jobID string, shardID int) {
