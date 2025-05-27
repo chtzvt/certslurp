@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chtzvt/ctsnarf/internal/testcluster"
 	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/chtzvt/ctsnarf/internal/testworkers"
 	"github.com/chtzvt/ctsnarf/internal/worker"
@@ -17,17 +18,17 @@ import (
 func TestWorkerE2EJobCompletion(t *testing.T) {
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 2)
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, 2)
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	workers := testworkers.RunWorkers(ctx, t, cl, jobID, 2, logger)
 
 	testutil.WaitFor(t, func() bool {
-		return testutil.AllShardsDone(t, cl, jobID)
+		return testcluster.AllShardsDone(t, cl, jobID)
 	}, 5*time.Second, 100*time.Millisecond, "job should complete")
 
 	for _, w := range workers {
@@ -36,17 +37,17 @@ func TestWorkerE2EJobCompletion(t *testing.T) {
 }
 
 func TestE2E_JobHappyPath(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 4)
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, 4)
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	workers := testworkers.RunWorkers(ctx, t, cl, jobID, 2, logger)
 	testutil.WaitFor(t, func() bool {
-		return testutil.AllShardsDone(t, cl, jobID)
+		return testcluster.AllShardsDone(t, cl, jobID)
 	}, 5*time.Second, 100*time.Millisecond, "job should complete")
 	for _, w := range workers {
 		w.Stop()
@@ -55,11 +56,11 @@ func TestE2E_JobHappyPath(t *testing.T) {
 
 // Simulate a worker dying mid-job: test reassign and recovery
 func TestCluster_WorkerFailureRecovery(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 4)
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, 4)
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -85,7 +86,7 @@ func TestCluster_WorkerFailureRecovery(t *testing.T) {
 		}(i, w)
 	}
 	testutil.WaitFor(t, func() bool {
-		return testutil.AllShardsDone(t, cl, jobID)
+		return testcluster.AllShardsDone(t, cl, jobID)
 	}, 8*time.Second, 100*time.Millisecond, "all shards should finish even if a worker died")
 
 	for _, w := range workers {
@@ -105,11 +106,11 @@ func TestCluster_WorkerFailureRecovery(t *testing.T) {
 
 // Test racing for the same shard assignment
 func TestCluster_ConcurrentAssignment(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 1) // just one shard!
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, 1) // just one shard!
 	shardID := 0
 	workerCount := 10
 	var wg sync.WaitGroup
@@ -130,19 +131,19 @@ func TestCluster_ConcurrentAssignment(t *testing.T) {
 
 // Large-scale stress test: 10000 shards, 100 workers
 func TestCluster_LargeScaleStress(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
 	numShards := 1000 // start smaller for CI sanity, can go higher locally
 	workerCount := 20
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, numShards)
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, numShards)
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	workers := testworkers.RunWorkers(ctx, t, cl, jobID, workerCount, logger)
 	testutil.WaitFor(t, func() bool {
-		return testutil.AllShardsDone(t, cl, jobID)
+		return testcluster.AllShardsDone(t, cl, jobID)
 	}, 18*time.Second, 300*time.Millisecond, "large job should complete")
 	for _, w := range workers {
 		w.Stop()
