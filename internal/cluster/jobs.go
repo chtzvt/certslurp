@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/certslurp/internal/job"
 	"github.com/google/uuid"
 
 	clientv3 "go.etcd.io/etcd/client/v3"

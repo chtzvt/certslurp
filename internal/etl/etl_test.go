@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/chtzvt/ctsnarf/internal/etl_core"
-	"github.com/chtzvt/ctsnarf/internal/extractor"
-	"github.com/chtzvt/ctsnarf/internal/job"
-	"github.com/chtzvt/ctsnarf/internal/secrets"
-	"github.com/chtzvt/ctsnarf/internal/sink"
-	"github.com/chtzvt/ctsnarf/internal/transformer"
+	"github.com/chtzvt/certslurp/internal/etl_core"
+	"github.com/chtzvt/certslurp/internal/extractor"
+	"github.com/chtzvt/certslurp/internal/job"
+	"github.com/chtzvt/certslurp/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/sink"
+	"github.com/chtzvt/certslurp/internal/transformer"
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/stretchr/testify/require"
 )

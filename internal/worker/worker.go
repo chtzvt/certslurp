@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/cluster"
-	"github.com/chtzvt/ctsnarf/internal/etl"
-	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/certslurp/internal/cluster"
+	"github.com/chtzvt/certslurp/internal/etl"
+	"github.com/chtzvt/certslurp/internal/job"
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/cluster"
-	"github.com/chtzvt/ctsnarf/internal/secrets"
-	"github.com/chtzvt/ctsnarf/internal/testcluster"
-	"github.com/chtzvt/ctsnarf/internal/testutil"
+	"github.com/chtzvt/certslurp/internal/cluster"
+	"github.com/chtzvt/certslurp/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/testcluster"
+	"github.com/chtzvt/certslurp/internal/testutil"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 	"golang.org/x/crypto/nacl/box"
@@ -36,7 +36,7 @@ func SetupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
 	cl, err := cluster.NewEtcdCluster(cluster.EtcdConfig{
 		Endpoints:   []string{e.Clients[0].Addr().String()},
 		DialTimeout: 2 * time.Second,
-		Prefix:      "/ctsnarf_test_" + testutil.RandString(5),
+		Prefix:      "/certslurp_test_" + testutil.RandString(5),
 	})
 	require.NoError(t, err)
 
@@ -105,7 +105,7 @@ func TestSecretDelete(t *testing.T) {
 	require.Equal(t, val, got)
 
 	// Simulate delete
-	_, err = store.Client().Delete(ctx, "/ctsnarf/secrets/store/"+key)
+	_, err = store.Client().Delete(ctx, "/certslurp/secrets/store/"+key)
 	require.NoError(t, err)
 	_, err = store.Get(ctx, key)
 	require.Error(t, err)
@@ -194,7 +194,7 @@ func TestBootstrapRegistrationFlow(t *testing.T) {
 	_, _ = rand.Read(clusterKey[:])
 	pubKey := store.PublicKey()
 	sealed, _ := box.SealAnonymous(nil, clusterKey[:], &pubKey, rand.Reader)
-	_, err = cluster.Client().Put(context.TODO(), "/ctsnarf/secrets/keys/"+store.NodeId(), base64.StdEncoding.EncodeToString(sealed))
+	_, err = cluster.Client().Put(context.TODO(), "/certslurp/secrets/keys/"+store.NodeId(), base64.StdEncoding.EncodeToString(sealed))
 	require.NoError(t, err)
 
 	select {

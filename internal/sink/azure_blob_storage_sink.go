@@ -6,8 +6,8 @@ import (
 	"io"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/chtzvt/ctsnarf/internal/compression"
-	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/compression"
+	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
 type AzureBlobSink struct {

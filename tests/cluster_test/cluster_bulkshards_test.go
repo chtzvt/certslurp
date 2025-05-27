@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/chtzvt/ctsnarf/internal/cluster"
-	"github.com/chtzvt/ctsnarf/internal/testcluster"
+	"github.com/chtzvt/certslurp/internal/cluster"
+	"github.com/chtzvt/certslurp/internal/testcluster"
 	"github.com/stretchr/testify/require"
 )
 

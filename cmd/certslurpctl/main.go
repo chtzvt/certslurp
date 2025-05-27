@@ -14,9 +14,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "ctsnarfctl",
-	Short: "Control utility for managing ctsnarf clusters",
-	Long:  `ctsnarfctl is the CLI for orchestrating and inspecting your ctsnarf distributed scraping cluster.`,
+	Use:   "certslurpctl",
+	Short: "Control utility for managing certslurp clusters",
+	Long:  `certslurpctl is the CLI for orchestrating and inspecting your certslurp distributed scraping cluster.`,
 	// Add Run here if you want a default action
 }
 
@@ -24,7 +24,7 @@ func init() {
 	cobra.OnInitialize(initConfig)
 
 	// Persistent flags
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $PWD/ctsnarfctl.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $PWD/certslurpctl.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 }
 
@@ -35,7 +35,7 @@ func initConfig() {
 	} else {
 		// Search for default config file in PWD
 		viper.AddConfigPath(".")
-		viper.SetConfigName("ctsnarfctl")
+		viper.SetConfigName("certslurpctl")
 	}
 	viper.AutomaticEnv()
 	if err := viper.ReadInConfig(); err == nil && verbose {

@@ -8,7 +8,7 @@ import (
 func TestLoadJobSpecJSON(t *testing.T) {
 	jobJSON := `
 {
-	"type": "ctsnarf:job",
+	"type": "certslurp:job",
 	"id": "1234-5678",
 	"version": "1.0.0",
 	"note": "Sample job spec",
@@ -29,7 +29,7 @@ func TestLoadJobSpecJSON(t *testing.T) {
 			"transformer": "jsonl",
 			"transformer_options": {"pretty": true},
 			"sink": "disk",
-			"sink_options": {"path": "/tmp/ctsnarf-out", "compression": "gzip"}
+			"sink_options": {"path": "/tmp/certslurp-out", "compression": "gzip"}
 		}
 	}
 }`

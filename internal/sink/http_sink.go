@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/compression"
-	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/compression"
+	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
 type HTTPSink struct {

@@ -3,8 +3,8 @@ package extractor
 import (
 	"testing"
 
-	"github.com/chtzvt/ctsnarf/internal/etl_core"
-	"github.com/chtzvt/ctsnarf/internal/testutil"
+	"github.com/chtzvt/certslurp/internal/etl_core"
+	"github.com/chtzvt/certslurp/internal/testutil"
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/stretchr/testify/require"
 )

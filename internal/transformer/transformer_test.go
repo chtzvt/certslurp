@@ -3,8 +3,8 @@ package transformer
 import (
 	"testing"
 
-	"github.com/chtzvt/ctsnarf/internal/etl_core"
-	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/certslurp/internal/etl_core"
+	"github.com/chtzvt/certslurp/internal/job"
 )
 
 // makeCtx builds an etl_core.Context with fields set as desired.

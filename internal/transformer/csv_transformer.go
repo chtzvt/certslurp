@@ -5,7 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 
-	"github.com/chtzvt/ctsnarf/internal/etl_core"
+	"github.com/chtzvt/certslurp/internal/etl_core"
 )
 
 type CSVTransformer struct{}

@@ -3,7 +3,7 @@ package cluster
 import (
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/secrets"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -12,7 +12,7 @@ type EtcdConfig struct {
 	Username     string // optional
 	Password     string // optional
 	DialTimeout  time.Duration
-	Prefix       string // default: "/ctsnarf"
+	Prefix       string // default: "/certslurp"
 	KeychainFile string
 }
 

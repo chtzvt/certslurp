@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
 // StdoutSink writes output to os.Stdout (for testing/dev/benchmark).

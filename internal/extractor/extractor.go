@@ -3,7 +3,7 @@ package extractor
 import (
 	"fmt"
 
-	"github.com/chtzvt/ctsnarf/internal/etl_core"
+	"github.com/chtzvt/certslurp/internal/etl_core"
 	ct "github.com/google/certificate-transparency-go"
 )
 

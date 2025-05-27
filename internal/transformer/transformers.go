@@ -3,7 +3,7 @@ package transformer
 import (
 	"fmt"
 
-	"github.com/chtzvt/ctsnarf/internal/etl_core"
+	"github.com/chtzvt/certslurp/internal/etl_core"
 )
 
 type Transformer interface {

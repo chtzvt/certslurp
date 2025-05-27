@@ -3,12 +3,12 @@ package etl
 import (
 	"fmt"
 
-	"github.com/chtzvt/ctsnarf/internal/etl_core"
-	"github.com/chtzvt/ctsnarf/internal/extractor"
-	"github.com/chtzvt/ctsnarf/internal/job"
-	"github.com/chtzvt/ctsnarf/internal/secrets"
-	"github.com/chtzvt/ctsnarf/internal/sink"
-	"github.com/chtzvt/ctsnarf/internal/transformer"
+	"github.com/chtzvt/certslurp/internal/etl_core"
+	"github.com/chtzvt/certslurp/internal/extractor"
+	"github.com/chtzvt/certslurp/internal/job"
+	"github.com/chtzvt/certslurp/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/sink"
+	"github.com/chtzvt/certslurp/internal/transformer"
 )
 
 // Pipeline orchestrates the ETL process for a stream of records, with chunking support.

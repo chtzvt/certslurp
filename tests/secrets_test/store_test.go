@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/chtzvt/ctsnarf/internal/secrets"
-	"github.com/chtzvt/ctsnarf/internal/testcluster"
-	"github.com/chtzvt/ctsnarf/internal/testutil"
+	"github.com/chtzvt/certslurp/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/testcluster"
+	"github.com/chtzvt/certslurp/internal/testutil"
 	"golang.org/x/crypto/nacl/box"
 )
 
@@ -33,7 +33,7 @@ func SetupTestStore(t *testing.T) *secrets.Store {
 	_, _ = rand.Read(clusterKey[:])
 	pubKey := store.PublicKey()
 	sealed, _ := box.SealAnonymous(nil, clusterKey[:], &pubKey, rand.Reader)
-	_, err = cluster.Client().Put(context.TODO(), "/ctsnarf/secrets/keys/"+store.NodeId(), base64.StdEncoding.EncodeToString(sealed))
+	_, err = cluster.Client().Put(context.TODO(), "/certslurp/secrets/keys/"+store.NodeId(), base64.StdEncoding.EncodeToString(sealed))
 	if err != nil {
 		t.Fatalf("Failed to put cluster key: %v", err)
 	}

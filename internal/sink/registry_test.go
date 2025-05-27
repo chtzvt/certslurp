@@ -3,7 +3,7 @@ package sink
 import (
 	"testing"
 
-	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
 func TestRegisterAndForName(t *testing.T) {

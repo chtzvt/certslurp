@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/certslurp/internal/job"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -14,15 +14,15 @@ var (
 	verbose bool
 	cfgFile string
 	rootCmd = &cobra.Command{
-		Use:   "ctsnarfd",
-		Short: "ctsnarfd is a distributed CT log fetcher",
+		Use:   "certslurpd",
+		Short: "certslurpd is a distributed CT log fetcher",
 		RunE:  runDaemon,
 	}
 )
 
 func init() {
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $PWD/ctsnarfd.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $PWD/certslurpd.yaml)")
 	rootCmd.Flags().StringVar(&jobFile, "job", "", "Path to job specification (required)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
 
@@ -40,7 +40,7 @@ func initConfig() {
 	} else {
 		// Search default locations
 		viper.AddConfigPath(".")
-		viper.SetConfigName("ctsnarfd")
+		viper.SetConfigName("certslurpd")
 	}
 	viper.AutomaticEnv()
 	_ = viper.ReadInConfig() // Ignore missing config

@@ -1,7 +1,7 @@
 package transformer
 
 import (
-	"github.com/chtzvt/ctsnarf/internal/etl_core"
+	"github.com/chtzvt/certslurp/internal/etl_core"
 )
 
 type PassthroughTransformer struct{}

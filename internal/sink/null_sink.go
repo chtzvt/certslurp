@@ -3,7 +3,7 @@ package sink
 import (
 	"context"
 
-	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
 type NullSink struct{}

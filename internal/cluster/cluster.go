@@ -3,8 +3,8 @@ package cluster
 import (
 	"context"
 
-	"github.com/chtzvt/ctsnarf/internal/job"
-	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/job"
+	"github.com/chtzvt/certslurp/internal/secrets"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 

@@ -6,7 +6,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
 // Sink is an abstraction for any destination to which ETL output data can be written.

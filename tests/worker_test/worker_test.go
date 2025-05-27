@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/testcluster"
-	"github.com/chtzvt/ctsnarf/internal/testutil"
-	"github.com/chtzvt/ctsnarf/internal/testworkers"
-	"github.com/chtzvt/ctsnarf/internal/worker"
+	"github.com/chtzvt/certslurp/internal/testcluster"
+	"github.com/chtzvt/certslurp/internal/testutil"
+	"github.com/chtzvt/certslurp/internal/testworkers"
+	"github.com/chtzvt/certslurp/internal/worker"
 	"github.com/stretchr/testify/require"
 )
 

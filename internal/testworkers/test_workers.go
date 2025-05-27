@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/cluster"
-	"github.com/chtzvt/ctsnarf/internal/testutil"
-	"github.com/chtzvt/ctsnarf/internal/worker"
+	"github.com/chtzvt/certslurp/internal/cluster"
+	"github.com/chtzvt/certslurp/internal/testutil"
+	"github.com/chtzvt/certslurp/internal/worker"
 )
 
 // Run N workers in parallel; returns a slice of workers for further control

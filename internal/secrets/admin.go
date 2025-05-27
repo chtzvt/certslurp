@@ -18,7 +18,7 @@ func GenerateAndStoreClusterKey(ctx context.Context, etcd *clientv3.Client) ([32
 		return clusterKey, err
 	}
 	b64 := base64.StdEncoding.EncodeToString(clusterKey[:])
-	_, err := etcd.Put(ctx, "/ctsnarf/secrets/cluster_key", b64)
+	_, err := etcd.Put(ctx, "/certslurp/secrets/cluster_key", b64)
 	return clusterKey, err
 }
 
@@ -26,7 +26,7 @@ func GenerateAndStoreClusterKey(ctx context.Context, etcd *clientv3.Client) ([32
 // Encrypts the cluster key with the node's public key and stores it in etcd.
 // Removes the pending registration after approval.
 func ApproveNode(ctx context.Context, etcd *clientv3.Client, nodeID string, clusterKey [32]byte) error {
-	resp, err := etcd.Get(ctx, "/ctsnarf/registration/pending/"+nodeID)
+	resp, err := etcd.Get(ctx, "/certslurp/registration/pending/"+nodeID)
 	if err != nil || len(resp.Kvs) == 0 {
 		return errors.New("pending registration not found")
 	}
@@ -42,7 +42,7 @@ func ApproveNode(ctx context.Context, etcd *clientv3.Client, nodeID string, clus
 		return err
 	}
 	sealedB64 := base64.StdEncoding.EncodeToString(sealed)
-	_, err = etcd.Put(ctx, "/ctsnarf/secrets/keys/"+nodeID, sealedB64)
-	_, _ = etcd.Delete(ctx, "/ctsnarf/registration/pending/"+nodeID)
+	_, err = etcd.Put(ctx, "/certslurp/secrets/keys/"+nodeID, sealedB64)
+	_, _ = etcd.Delete(ctx, "/certslurp/registration/pending/"+nodeID)
 	return err
 }

@@ -1,4 +1,4 @@
-module github.com/chtzvt/ctsnarf
+module github.com/chtzvt/certslurp
 
 go 1.24.3
 

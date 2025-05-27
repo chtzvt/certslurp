@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"regexp"
 
-	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/certslurp/internal/job"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/scanner"
 )

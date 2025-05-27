@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chtzvt/ctsnarf/internal/sink"
+	"github.com/chtzvt/certslurp/internal/sink"
 	ct "github.com/google/certificate-transparency-go"
 )
 

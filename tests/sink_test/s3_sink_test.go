@@ -10,10 +10,10 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/chtzvt/ctsnarf/internal/secrets"
-	"github.com/chtzvt/ctsnarf/internal/sink"
-	"github.com/chtzvt/ctsnarf/internal/testcluster"
-	"github.com/chtzvt/ctsnarf/internal/testutil"
+	"github.com/chtzvt/certslurp/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/sink"
+	"github.com/chtzvt/certslurp/internal/testcluster"
+	"github.com/chtzvt/certslurp/internal/testutil"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/nacl/box"
 )
@@ -55,7 +55,7 @@ func setupTestStore(t *testing.T) *secrets.Store {
 	_, _ = rand.Read(clusterKey[:])
 	pubKey := store.PublicKey()
 	sealed, _ := box.SealAnonymous(nil, clusterKey[:], &pubKey, rand.Reader)
-	_, err = cluster.Client().Put(context.TODO(), "/ctsnarf/secrets/keys/"+store.NodeId(), base64.StdEncoding.EncodeToString(sealed))
+	_, err = cluster.Client().Put(context.TODO(), "/certslurp/secrets/keys/"+store.NodeId(), base64.StdEncoding.EncodeToString(sealed))
 	if err != nil {
 		t.Fatalf("Failed to put cluster key: %v", err)
 	}

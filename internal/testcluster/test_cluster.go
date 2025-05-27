@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chtzvt/ctsnarf/internal/cluster"
-	"github.com/chtzvt/ctsnarf/internal/job"
-	"github.com/chtzvt/ctsnarf/internal/testutil"
+	"github.com/chtzvt/certslurp/internal/cluster"
+	"github.com/chtzvt/certslurp/internal/job"
+	"github.com/chtzvt/certslurp/internal/testutil"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/server/v3/embed"
 )
@@ -33,7 +33,7 @@ func SetupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
 	cl, err := cluster.NewEtcdCluster(cluster.EtcdConfig{
 		Endpoints:   []string{e.Clients[0].Addr().String()},
 		DialTimeout: 2 * time.Second,
-		Prefix:      "/ctsnarf_test_" + testutil.RandString(5),
+		Prefix:      "/certslurp_test_" + testutil.RandString(5),
 	})
 	require.NoError(t, err)
 
