@@ -1,4 +1,4 @@
-package secrets
+package secrets_test
 
 import (
 	"context"
@@ -8,10 +8,44 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chtzvt/ctsnarf/internal/cluster"
+	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/ctsnarf/internal/testcluster"
 	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/etcd/server/v3/embed"
 	"golang.org/x/crypto/nacl/box"
 )
+
+// Start an embedded etcd cluster for test, return cluster + cleanup
+func SetupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
+	t.Helper()
+	cfg := embed.NewConfig()
+	cfg.Dir = t.TempDir()
+	cfg.Logger = "zap"
+	cfg.LogLevel = "error"
+	e, err := embed.StartEtcd(cfg)
+	require.NoError(t, err)
+
+	select {
+	case <-e.Server.ReadyNotify():
+	case <-time.After(10 * time.Second):
+		t.Fatal("etcd server did not become ready in time")
+	}
+
+	cl, err := cluster.NewEtcdCluster(cluster.EtcdConfig{
+		Endpoints:   []string{e.Clients[0].Addr().String()},
+		DialTimeout: 2 * time.Second,
+		Prefix:      "/ctsnarf_test_" + testutil.RandString(5),
+	})
+	require.NoError(t, err)
+
+	cleanup := func() {
+		_ = cl.Close()
+		e.Close()
+	}
+	return cl, cleanup
+}
 
 func TestSetAndGet(t *testing.T) {
 	store := SetupTestStore(t)
@@ -71,7 +105,7 @@ func TestSecretDelete(t *testing.T) {
 	require.Equal(t, val, got)
 
 	// Simulate delete
-	_, err = store.etcd.Delete(ctx, "/ctsnarf/secrets/store/"+key)
+	_, err = store.Client().Delete(ctx, "/ctsnarf/secrets/store/"+key)
 	require.NoError(t, err)
 	_, err = store.Get(ctx, key)
 	require.Error(t, err)
@@ -136,7 +170,7 @@ func TestSecretEmptyValue(t *testing.T) {
 }
 
 func TestBootstrapRegistrationFlow(t *testing.T) {
-	cluster, cleanup := testutil.SetupEtcdCluster(t)
+	cluster, cleanup := testcluster.SetupEtcdCluster(t)
 	t.Cleanup(cleanup)
 
 	tempDir, cleanup2 := testutil.SetupTempDir(t)
@@ -144,7 +178,7 @@ func TestBootstrapRegistrationFlow(t *testing.T) {
 	keyPath := tempDir + "/node_key"
 
 	// Node will register and block waiting for admin approval
-	store, err := NewStore(cluster.Client(), keyPath)
+	store, err := secrets.NewStore(cluster.Client(), keyPath)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -158,8 +192,9 @@ func TestBootstrapRegistrationFlow(t *testing.T) {
 	// Simulate admin creating cluster key
 	var clusterKey [32]byte
 	_, _ = rand.Read(clusterKey[:])
-	sealed, _ := box.SealAnonymous(nil, clusterKey[:], &store.keys.Public, rand.Reader)
-	_, err = cluster.Client().Put(context.TODO(), "/ctsnarf/secrets/keys/"+store.nodeID, base64.StdEncoding.EncodeToString(sealed))
+	pubKey := store.PublicKey()
+	sealed, _ := box.SealAnonymous(nil, clusterKey[:], &pubKey, rand.Reader)
+	_, err = cluster.Client().Put(context.TODO(), "/ctsnarf/secrets/keys/"+store.NodeId(), base64.StdEncoding.EncodeToString(sealed))
 	require.NoError(t, err)
 
 	select {
@@ -177,13 +212,13 @@ func TestBootstrapRegistrationFlow(t *testing.T) {
 }
 
 func TestBootstrapRegistrationTimeout(t *testing.T) {
-	cluster, cleanup := testutil.SetupEtcdCluster(t)
+	cluster, cleanup := testcluster.SetupEtcdCluster(t)
 	t.Cleanup(cleanup)
 	tempDir, cleanup2 := testutil.SetupTempDir(t)
 	t.Cleanup(cleanup2)
 	keyPath := tempDir + "/node_key"
 
-	store, err := NewStore(cluster.Client(), keyPath)
+	store, err := secrets.NewStore(cluster.Client(), keyPath)
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

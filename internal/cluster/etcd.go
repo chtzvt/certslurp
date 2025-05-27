@@ -3,20 +3,23 @@ package cluster
 import (
 	"time"
 
+	"github.com/chtzvt/ctsnarf/internal/secrets"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 type EtcdConfig struct {
-	Endpoints   []string
-	Username    string // optional
-	Password    string // optional
-	DialTimeout time.Duration
-	Prefix      string // default: "/ctsnarf"
+	Endpoints    []string
+	Username     string // optional
+	Password     string // optional
+	DialTimeout  time.Duration
+	Prefix       string // default: "/ctsnarf"
+	KeychainFile string
 }
 
 type etcdCluster struct {
-	client *clientv3.Client
-	cfg    EtcdConfig
+	client  *clientv3.Client
+	cfg     EtcdConfig
+	secrets *secrets.Store
 }
 
 func NewEtcdCluster(cfg EtcdConfig) (Cluster, error) {
@@ -29,9 +32,13 @@ func NewEtcdCluster(cfg EtcdConfig) (Cluster, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	secretStore, err := secrets.NewStore(cli, cfg.KeychainFile)
+
 	return &etcdCluster{
-		client: cli,
-		cfg:    cfg,
+		client:  cli,
+		cfg:     cfg,
+		secrets: secretStore,
 	}, nil
 }
 
@@ -41,6 +48,10 @@ func (c *etcdCluster) Prefix() string {
 
 func (c *etcdCluster) Client() *clientv3.Client {
 	return c.client
+}
+
+func (c *etcdCluster) Secrets() *secrets.Store {
+	return c.secrets
 }
 
 func (c *etcdCluster) Close() error {

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/ctsnarf/internal/secrets"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -33,6 +34,8 @@ type Cluster interface {
 	ReportShardFailed(ctx context.Context, jobID string, shardID int) error
 	RequestShardSplit(ctx context.Context, jobID string, shardID int, newRanges []ShardRange) error
 	ReassignOrphanedShards(ctx context.Context, jobID string, assignTo string) ([]int, error)
+
+	Secrets() *secrets.Store
 
 	Prefix() string
 	Client() *clientv3.Client

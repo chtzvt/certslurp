@@ -1,47 +1,11 @@
 package testutil
 
 import (
-	"context"
 	"log"
 	"os"
 	"testing"
 	"time"
-
-	"github.com/chtzvt/ctsnarf/internal/cluster"
-	"github.com/chtzvt/ctsnarf/internal/job"
-	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/server/v3/embed"
 )
-
-// Start an embedded etcd cluster for test, return cluster + cleanup
-func SetupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
-	t.Helper()
-	cfg := embed.NewConfig()
-	cfg.Dir = t.TempDir()
-	cfg.Logger = "zap"
-	cfg.LogLevel = "error"
-	e, err := embed.StartEtcd(cfg)
-	require.NoError(t, err)
-
-	select {
-	case <-e.Server.ReadyNotify():
-	case <-time.After(10 * time.Second):
-		t.Fatal("etcd server did not become ready in time")
-	}
-
-	cl, err := cluster.NewEtcdCluster(cluster.EtcdConfig{
-		Endpoints:   []string{e.Clients[0].Addr().String()},
-		DialTimeout: 2 * time.Second,
-		Prefix:      "/ctsnarf_test_" + RandString(5),
-	})
-	require.NoError(t, err)
-
-	cleanup := func() {
-		_ = cl.Close()
-		e.Close()
-	}
-	return cl, cleanup
-}
 
 // Random string for unique prefixes
 func RandString(n int) string {
@@ -51,49 +15,6 @@ func RandString(n int) string {
 		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
 	}
 	return string(b)
-}
-
-// Submit a job and create shards
-func SubmitTestJob(t *testing.T, cl cluster.Cluster, logURI string, numShards int, opts ...job.JobOptions) string {
-	t.Helper()
-	options := job.JobOptions{}
-	if len(opts) > 0 {
-		options = opts[0]
-	}
-	spec := &job.JobSpec{
-		Version: "0.1.0",
-		LogURI:  logURI,
-		Options: options,
-	}
-	ctx := context.Background()
-	jobID, err := cl.SubmitJob(ctx, spec)
-	require.NoError(t, err)
-
-	// Default: shards cover indices 0 .. numShards*100
-	ranges := make([]cluster.ShardRange, numShards)
-	for i := 0; i < numShards; i++ {
-		ranges[i] = cluster.ShardRange{
-			ShardID:   i,
-			IndexFrom: int64(i * 100),
-			IndexTo:   int64((i + 1) * 100),
-		}
-	}
-	require.NoError(t, cl.BulkCreateShards(ctx, jobID, ranges))
-	return jobID
-}
-
-// Wait until all shards are done for a jobID, with a timeout
-func AllShardsDone(t *testing.T, cl cluster.Cluster, jobID string) bool {
-	t.Helper()
-	ctx := context.Background()
-	assignments, err := cl.GetShardAssignments(ctx, jobID)
-	require.NoError(t, err)
-	for _, stat := range assignments {
-		if !stat.Done && !stat.Failed {
-			return false
-		}
-	}
-	return true
 }
 
 // Utility: Wait for a condition or timeout

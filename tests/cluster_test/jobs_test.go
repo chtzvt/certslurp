@@ -11,12 +11,14 @@ import (
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
 	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/ctsnarf/internal/testcluster"
 	"github.com/chtzvt/ctsnarf/internal/testutil"
+	"github.com/chtzvt/ctsnarf/internal/testworkers"
 	"github.com/stretchr/testify/require"
 )
 
 func TestJobLifecycle(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -62,7 +64,7 @@ func TestJobLifecycle(t *testing.T) {
 }
 
 func TestCancelJobErrors(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ctx := context.Background()
 	_, err := cl.GetJob(ctx, "doesnotexist")
@@ -79,7 +81,7 @@ func TestCancelJobErrors(t *testing.T) {
 }
 
 func TestListJobs_AllFields(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ctx := context.Background()
 
@@ -155,12 +157,12 @@ func TestJobInfo_JSONRoundtrip(t *testing.T) {
 }
 
 func TestCluster_JobStatusTransitions(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
 
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 2)
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, 2)
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
@@ -183,12 +185,12 @@ func TestCluster_JobStatusTransitions(t *testing.T) {
 }
 
 func TestCluster_DoubleCompletion(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
 
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 1)
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, 1)
 	shardID := 0
 
 	// Simulate two workers both trying to report done at the same time.
@@ -217,12 +219,12 @@ func TestCluster_DoubleCompletion(t *testing.T) {
 }
 
 func TestCluster_BackoffAndPermanentFailure(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
 
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, 1)
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, 1)
 	shardID := 0
 
 	maxRetries := 3

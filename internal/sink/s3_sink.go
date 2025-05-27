@@ -19,7 +19,7 @@ type S3Sink struct {
 	compression      string
 	secrets          *secrets.Store
 	endpoint         string
-	client           PutObjectAPI // test only; nil in prod, set by test
+	Client           PutObjectAPI // test only; nil in prod, set by test
 	disableChecksums bool
 }
 
@@ -114,8 +114,8 @@ func (s *S3Sink) Open(ctx context.Context, name string) (SinkWriter, error) {
 
 	var client PutObjectAPI
 
-	if s.client != nil {
-		client = s.client // use injected client for testing
+	if s.Client != nil {
+		client = s.Client // use injected client for testing
 	} else {
 		client = s3.NewFromConfig(awsCfg, s3Opts...)
 	}

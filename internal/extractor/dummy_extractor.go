@@ -8,7 +8,7 @@ import (
 type DummyExtractor struct{}
 
 func (e *DummyExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry) (map[string]interface{}, error) {
-	return map[string]interface{}{"raw": raw}, nil
+	return map[string]interface{}{"raw": raw.Cert.Data}, nil
 }
 
 func init() {

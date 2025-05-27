@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/chtzvt/ctsnarf/internal/job"
+	"github.com/chtzvt/ctsnarf/internal/testcluster"
 	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/chtzvt/ctsnarf/internal/worker"
 )
@@ -33,7 +34,7 @@ func TestWorker_ScanShard_StubbedCTLog(t *testing.T) {
 		},
 	}
 
-	cluster, cleanup := testutil.SetupEtcdCluster(t)
+	cluster, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 
 	w := worker.NewWorker(cluster, "testjob", "worker-1", nil)

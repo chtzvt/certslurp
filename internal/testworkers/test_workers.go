@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
+	"github.com/chtzvt/ctsnarf/internal/testcluster"
 	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/chtzvt/ctsnarf/internal/worker"
 )
@@ -34,7 +35,7 @@ func RunWorkers(ctx context.Context, t *testing.T, cl cluster.Cluster, jobID str
 			case <-ctx.Done():
 				return
 			default:
-				if testutil.AllShardsDone(t, cl, jobID) {
+				if testcluster.AllShardsDone(t, cl, jobID) {
 					_ = cl.MarkJobCompleted(ctx, jobID)
 					_ = cl.UpdateJobStatus(ctx, jobID, cluster.JobStateCompleted)
 					return

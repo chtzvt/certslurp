@@ -17,6 +17,22 @@ type Store struct {
 	clusterK [32]byte
 }
 
+func (s *Store) SetClusterKey(key [32]byte) {
+	s.clusterK = key
+}
+
+func (s *Store) NodeId() string {
+	return s.nodeID
+}
+
+func (s *Store) PublicKey() [32]byte {
+	return s.keys.Public
+}
+
+func (s *Store) Client() *clientv3.Client {
+	return s.etcd
+}
+
 // NewStore initializes a Store using the provided etcd client and key path.
 // If no keypair exists at keyPath, a new one is generated and persisted.
 // Returns an error if keypair creation or loading fails.

@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/cluster"
+	"github.com/chtzvt/ctsnarf/internal/testcluster"
 	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/chtzvt/ctsnarf/internal/worker"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWorkerLifecycle(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 
 	ctx := context.Background()
@@ -32,12 +33,12 @@ func TestWorkerLifecycle(t *testing.T) {
 }
 
 func TestCluster_RapidWorkerChurn(t *testing.T) {
-	cl, cleanup := testutil.SetupEtcdCluster(t)
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
 	numShards := 10
-	jobID := testutil.SubmitTestJob(t, cl, ts.URL, numShards)
+	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, numShards)
 	logger := testutil.NewTestLogger(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
@@ -55,6 +56,6 @@ func TestCluster_RapidWorkerChurn(t *testing.T) {
 		}(w)
 	}
 	testutil.WaitFor(t, func() bool {
-		return testutil.AllShardsDone(t, cl, jobID)
+		return testcluster.AllShardsDone(t, cl, jobID)
 	}, 7*time.Second, 150*time.Millisecond, "all shards complete despite churn")
 }

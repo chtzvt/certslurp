@@ -1,14 +1,21 @@
-package sink
+package sink_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"io"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/chtzvt/ctsnarf/internal/secrets"
+	"github.com/chtzvt/ctsnarf/internal/sink"
+	"github.com/chtzvt/ctsnarf/internal/testcluster"
+	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/nacl/box"
 )
 
 type mockPutObjectAPI struct {
@@ -28,8 +35,36 @@ func (m *mockPutObjectAPI) PutObject(ctx context.Context, params *s3.PutObjectIn
 	return &s3.PutObjectOutput{}, m.returnErr
 }
 
+func setupTestStore(t *testing.T) *secrets.Store {
+	t.Helper()
+
+	// Start embedded etcd and get cleanup
+	cluster, cleanup := testcluster.SetupEtcdCluster(t)
+	t.Cleanup(cleanup)
+
+	tempDir, cleanup2 := testutil.SetupTempDir(t)
+	t.Cleanup(cleanup2)
+
+	keyPath := filepath.Join(tempDir, "test_node_key")
+	store, err := secrets.NewStore(cluster.Client(), keyPath)
+	if err != nil {
+		t.Fatalf("Failed to create Store: %v", err)
+	}
+	// Simulate admin approval for bootstrap (direct cluster key approval)
+	var clusterKey [32]byte
+	_, _ = rand.Read(clusterKey[:])
+	pubKey := store.PublicKey()
+	sealed, _ := box.SealAnonymous(nil, clusterKey[:], &pubKey, rand.Reader)
+	_, err = cluster.Client().Put(context.TODO(), "/ctsnarf/secrets/keys/"+store.NodeId(), base64.StdEncoding.EncodeToString(sealed))
+	if err != nil {
+		t.Fatalf("Failed to put cluster key: %v", err)
+	}
+	store.SetClusterKey(clusterKey)
+	return store
+}
+
 func TestS3Sink_PutObject(t *testing.T) {
-	store := secrets.SetupTestStore(t)
+	store := setupTestStore(t)
 	ctx := context.Background()
 
 	require.NoError(t, store.Set(ctx, "AWS_ACCESS_KEY_ID", []byte("fake-access")))
@@ -45,10 +80,10 @@ func TestS3Sink_PutObject(t *testing.T) {
 		"prefix": "prefix/",
 	}
 
-	sinkIface, err := NewS3Sink(opts, store)
+	sinkIface, err := sink.NewS3Sink(opts, store)
 	require.NoError(t, err)
-	sink := sinkIface.(*S3Sink)
-	sink.client = mock
+	sink := sinkIface.(*sink.S3Sink)
+	sink.Client = mock
 
 	w, err := sink.Open(ctx, "testfile.txt")
 	require.NoError(t, err)

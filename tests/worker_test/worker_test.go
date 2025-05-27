@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chtzvt/ctsnarf/internal/testutil"
+	"github.com/chtzvt/ctsnarf/internal/testworkers"
 	"github.com/chtzvt/ctsnarf/internal/worker"
 	"github.com/stretchr/testify/require"
 )
