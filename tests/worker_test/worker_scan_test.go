@@ -1,10 +1,7 @@
 package worker_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,6 +14,7 @@ import (
 	"github.com/chtzvt/ctsnarf/internal/testworkers"
 	"github.com/chtzvt/ctsnarf/internal/worker"
 	ct "github.com/google/certificate-transparency-go"
+	"github.com/google/certificate-transparency-go/x509"
 	"github.com/stretchr/testify/require"
 )
 
@@ -75,28 +73,28 @@ func TestWorker_StreamShard_StubbedCTLog(t *testing.T) {
 	require.True(t, found, "Expected to find mail.google.com cert, did not")
 }
 
-func TestWorkerE2E_ExtractsExpectedSubjects(t *testing.T) {
+func TestWorkerE2E_ExtractsExpectedCerts(t *testing.T) {
 	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
 
-	outputDir := t.TempDir() // or custom temp dir
+	outputDir := t.TempDir()
 
 	opts := job.JobOptions{
 		Fetch: job.FetchConfig{
 			BatchSize:  2,
 			Workers:    1,
 			IndexStart: 0,
-			IndexEnd:   4,
+			IndexEnd:   1, // Get first cert (testutil.CTLogEntry0)
 		},
 		Match: job.MatchConfig{
 			SubjectRegex: "mail.google.com",
 		},
 		Output: job.OutputOptions{
-			Extractor:   "cert_fields",
-			Transformer: "jsonl",
-			Sink:        "disk",
+			Extractor:   "raw",
+			Transformer: "passthrough",
+			Sink:        "disk", // Writes raw ASN.1 data to disk from the extracted ct.RawLogEntry
 			SinkOptions: map[string]interface{}{"path": outputDir},
 		},
 	}
@@ -123,22 +121,15 @@ func TestWorkerE2E_ExtractsExpectedSubjects(t *testing.T) {
 	var found bool
 	for _, f := range files {
 		data, err := os.ReadFile(filepath.Join(outputDir, f.Name()))
-		fmt.Printf(">>> CONTENT: %s", data)
 		require.NoError(t, err)
-		lines := bytes.Split(data, []byte("\n"))
-		for _, line := range lines {
-			if len(line) == 0 {
-				continue
-			}
-			var rec map[string]interface{}
-			require.NoError(t, json.Unmarshal(line, &rec))
-			// e.g., check for a particular CN
-			if subj, ok := rec["subject"].(map[string]interface{}); ok {
-				if cn, ok := subj["CommonName"].(string); ok && cn == "mail.google.com" {
-					found = true
-				}
-			}
+
+		cert, err := x509.ParseCertificates(data)
+		require.NoError(t, err)
+
+		if cert[0].DNSNames[0] == "mail.google.com" {
+			found = true
 		}
 	}
+
 	require.True(t, found, "Expected to find subject CN mail.google.com in ETL output")
 }
