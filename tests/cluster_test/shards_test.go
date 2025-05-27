@@ -12,6 +12,73 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBulkCreateShards_ExactShardCountAndIDs(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	jobID := "manyshards"
+	numShards := 1000
+	var shards []cluster.ShardRange
+	for i := 0; i < numShards; i++ {
+		shards = append(shards, cluster.ShardRange{ShardID: i, IndexFrom: int64(i * 100), IndexTo: int64((i + 1) * 100)})
+	}
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, shards))
+
+	// Test GetShardAssignments returns all shard IDs
+	statusMap, err := cl.GetShardAssignments(ctx, jobID)
+	require.NoError(t, err)
+	require.Len(t, statusMap, numShards)
+	for i := 0; i < numShards; i++ {
+		stat, ok := statusMap[i]
+		require.True(t, ok, "missing shard %d", i)
+		require.Equal(t, int64(i*100), stat.IndexFrom)
+		require.Equal(t, int64((i+1)*100), stat.IndexTo)
+		require.False(t, stat.Assigned)
+		require.False(t, stat.Done)
+	}
+
+	// Test GetShardAssignmentsWindow on full range and last/first windows
+	win, err := cl.GetShardAssignmentsWindow(ctx, jobID, 0, numShards)
+	require.NoError(t, err)
+	require.Len(t, win, numShards)
+	// Spot check boundary windows
+	winFirst, err := cl.GetShardAssignmentsWindow(ctx, jobID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, winFirst, 10)
+	winLast, err := cl.GetShardAssignmentsWindow(ctx, jobID, numShards-10, numShards)
+	require.NoError(t, err)
+	require.Len(t, winLast, 10)
+	for i := numShards - 10; i < numShards; i++ {
+		_, ok := winLast[i]
+		require.True(t, ok, "missing shard %d in last window", i)
+	}
+}
+
+func TestBulkCreateShards_LateCreateOfHighestShard(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	jobID := "partialshards"
+	var shards []cluster.ShardRange
+	for i := 0; i < 999; i++ {
+		shards = append(shards, cluster.ShardRange{ShardID: i, IndexFrom: int64(i * 100), IndexTo: int64((i + 1) * 100)})
+	}
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, shards))
+	// Now add just 999
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, []cluster.ShardRange{
+		{ShardID: 999, IndexFrom: 99900, IndexTo: 100000},
+	}))
+
+	statusMap, err := cl.GetShardAssignments(ctx, jobID)
+	require.NoError(t, err)
+	require.Len(t, statusMap, 1000)
+	// All present
+	for i := 0; i < 1000; i++ {
+		_, ok := statusMap[i]
+		require.True(t, ok, "missing shard %d", i)
+	}
+}
+
 func TestBulkCreateAndShardAssignmentLifecycle(t *testing.T) {
 	cl, cleanup := testcluster.SetupEtcdCluster(t)
 	defer cleanup()
@@ -94,16 +161,23 @@ func TestRequestShardSplit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check the split flag
-	prefix := cl.Prefix() + "/jobs/splitjob/shards/10/split"
+	prefix := cl.ShardKey("splitjob", 10) + "/split"
 	resp, err := cl.Client().Get(ctx, prefix)
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Kvs)
 
-	// Check new shards
+	// Check new shards: verify statusMap includes their /range records
 	statusMap, err := cl.GetShardAssignments(ctx, jobID)
 	require.NoError(t, err)
-	require.Contains(t, statusMap, 11)
-	require.Contains(t, statusMap, 12)
+	_, ok11 := statusMap[11]
+	_, ok12 := statusMap[12]
+	require.True(t, ok11, "Shard 11 missing from assignments")
+	require.True(t, ok12, "Shard 12 missing from assignments")
+	// Check the range info is as expected
+	require.Equal(t, int64(0), statusMap[11].IndexFrom)
+	require.Equal(t, int64(5000), statusMap[11].IndexTo)
+	require.Equal(t, int64(5000), statusMap[12].IndexFrom)
+	require.Equal(t, int64(10000), statusMap[12].IndexTo)
 }
 
 func TestReassignOrphanedShards(t *testing.T) {
@@ -114,22 +188,32 @@ func TestReassignOrphanedShards(t *testing.T) {
 	require.NoError(t, cl.BulkCreateShards(ctx, jobID, []cluster.ShardRange{{ShardID: 0, IndexFrom: 0, IndexTo: 100}}))
 
 	// Simulate orphan by assigning and then "expiring" lease
-	_ = cl.AssignShard(ctx, jobID, 0, "deadworker")
+	require.NoError(t, cl.AssignShard(ctx, jobID, 0, "deadworker"))
 	// Manually set lease expiry in the past
-	prefix := cl.Prefix() + "/jobs/orphanjob/shards/0/assignment"
+	prefix := cl.ShardKey("orphanjob", 0) + "/assignment"
 	resp, err := cl.Client().Get(ctx, prefix)
 	require.NoError(t, err)
-	if len(resp.Kvs) > 0 {
-		var a cluster.ShardAssignment
-		_ = json.Unmarshal(resp.Kvs[0].Value, &a)
-		a.LeaseExpiry = time.Now().Add(-10 * time.Minute)
-		b, _ := json.Marshal(a)
-		cl.Client().Put(ctx, prefix, string(b))
-	}
+	require.NotEmpty(t, resp.Kvs)
+	var a cluster.ShardAssignment
+	require.NoError(t, json.Unmarshal(resp.Kvs[0].Value, &a))
+	a.LeaseExpiry = time.Now().Add(-10 * time.Minute)
+	b, _ := json.Marshal(a)
+	_, err = cl.Client().Put(ctx, prefix, string(b))
+	require.NoError(t, err)
 
-	orphans, err := cl.ReassignOrphanedShards(ctx, jobID, "newworker")
+	// Should now be orphaned
+	orphans, err := cl.FindOrphanedShards(ctx, jobID)
 	require.NoError(t, err)
 	require.Contains(t, orphans, 0)
+
+	reassigned, err := cl.ReassignOrphanedShards(ctx, jobID, "newworker")
+	require.NoError(t, err)
+	require.Contains(t, reassigned, 0)
+
+	// Should no longer be orphaned
+	orphansAfter, err := cl.FindOrphanedShards(ctx, jobID)
+	require.NoError(t, err)
+	require.NotContains(t, orphansAfter, 0)
 }
 
 func TestCluster_OrphanedShardRecovery(t *testing.T) {
@@ -145,8 +229,63 @@ func TestCluster_OrphanedShardRecovery(t *testing.T) {
 	require.NoError(t, cl.AssignShard(ctx, jobID, shardID, "oldworker"))
 	testcluster.ExpireShardLease(t, cl, jobID, shardID)
 
-	// Now attempt to reassign via ReassignOrphanedShards
-	orphans, err := cl.ReassignOrphanedShards(ctx, jobID, "newworker")
+	// Should now be orphaned
+	orphans, err := cl.FindOrphanedShards(ctx, jobID)
 	require.NoError(t, err)
 	require.Contains(t, orphans, shardID)
+
+	// Now attempt to reassign via ReassignOrphanedShards
+	reassigned, err := cl.ReassignOrphanedShards(ctx, jobID, "newworker")
+	require.NoError(t, err)
+	require.Contains(t, reassigned, shardID)
+
+	// Should not be orphaned anymore
+	orphansAfter, err := cl.FindOrphanedShards(ctx, jobID)
+	require.NoError(t, err)
+	require.NotContains(t, orphansAfter, shardID)
+}
+
+func TestGetShardAssignmentsWindow(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	jobID := "windowjob"
+	var shards []cluster.ShardRange
+	for i := 0; i < 10; i++ {
+		shards = append(shards, cluster.ShardRange{ShardID: i, IndexFrom: int64(i * 1000), IndexTo: int64((i + 1) * 1000)})
+	}
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, shards))
+
+	// Only get window 3-6
+	window, err := cl.GetShardAssignmentsWindow(ctx, jobID, 3, 7)
+	require.NoError(t, err)
+	require.Len(t, window, 4)
+	for k := 3; k <= 6; k++ {
+		stat, ok := window[k]
+		require.True(t, ok, "missing shard %d", k)
+		require.False(t, stat.Assigned)
+		require.False(t, stat.Done)
+	}
+}
+
+func TestGetShardCount_ZeroIfNotSet(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	count, err := cl.GetShardCount(ctx, "doesnotexist")
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+}
+
+func TestGetShardAssignmentsWindow_EmptyOnOutOfBounds(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	jobID := "outofboundsjob"
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, []cluster.ShardRange{
+		{ShardID: 0, IndexFrom: 0, IndexTo: 100},
+	}))
+	window, err := cl.GetShardAssignmentsWindow(ctx, jobID, 10, 20)
+	require.NoError(t, err)
+	require.Len(t, window, 0)
 }

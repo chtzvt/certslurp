@@ -115,7 +115,7 @@ func ExpireShardLease(t *testing.T, cl cluster.Cluster, jobID string, shardID in
 	ctx := context.Background()
 
 	// Get etcd key for the assignment
-	prefix := cl.Prefix() + "/jobs/" + jobID + "/shards/" + itoa(shardID) + "/assignment"
+	prefix := cl.ShardKey(jobID, shardID) + "/assignment"
 	resp, err := cl.Client().Get(ctx, prefix)
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Kvs, "no assignment found for shard %d", shardID)

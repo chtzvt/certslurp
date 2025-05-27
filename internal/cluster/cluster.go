@@ -35,7 +35,9 @@ type Cluster interface {
 	ReportShardDone(ctx context.Context, jobID string, shardID int, manifest ShardManifest) error
 	ReportShardFailed(ctx context.Context, jobID string, shardID int) error
 	RequestShardSplit(ctx context.Context, jobID string, shardID int, newRanges []ShardRange) error
+	FindOrphanedShards(ctx context.Context, jobID string) ([]int, error)
 	ReassignOrphanedShards(ctx context.Context, jobID string, assignTo string) ([]int, error)
+	ShardKey(jobID string, shardID int) string
 
 	Secrets() *secrets.Store
 
