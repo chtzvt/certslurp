@@ -78,6 +78,9 @@ func (w *Worker) Run(ctx context.Context) error {
 	heartbeatTicker := time.NewTicker(5 * time.Second)
 	defer heartbeatTicker.Stop()
 
+	metricsTicker := time.NewTicker(10 * time.Second)
+	defer metricsTicker.Stop()
+
 	sem := make(chan struct{}, w.MaxParallel)
 	for {
 		select {
@@ -91,6 +94,8 @@ func (w *Worker) Run(ctx context.Context) error {
 			return nil
 		case <-heartbeatTicker.C:
 			w.heartbeat(ctx)
+		case <-metricsTicker.C:
+			w.sendMetrics(ctx)
 		default:
 			// --- Main Loop Error Handling ---
 			if lastErr != nil {
@@ -151,6 +156,12 @@ func (w *Worker) Stop() {
 func (w *Worker) heartbeat(ctx context.Context) {
 	if err := w.Cluster.HeartbeatWorker(ctx, w.ID); err != nil {
 		w.Logger.Printf("heartbeat failed: %v", err)
+	}
+}
+
+func (w *Worker) sendMetrics(ctx context.Context) {
+	if err := w.Cluster.SendMetrics(ctx, w.ID, w.Metrics); err != nil {
+		w.Logger.Printf("SendMetrics failed: %v", err)
 	}
 }
 

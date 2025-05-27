@@ -24,6 +24,8 @@ type Cluster interface {
 	RegisterWorker(ctx context.Context, info WorkerInfo) (workerID string, err error)
 	ListWorkers(ctx context.Context) ([]WorkerInfo, error)
 	HeartbeatWorker(ctx context.Context, workerID string) error
+	SendMetrics(ctx context.Context, workerID string, metrics *WorkerMetrics) error
+	GetWorkerMetrics(ctx context.Context, workerID string) (*WorkerMetricsView, error)
 
 	// Shard orchestration
 	BulkCreateShards(ctx context.Context, jobID string, ranges []ShardRange) error

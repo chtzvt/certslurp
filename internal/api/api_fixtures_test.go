@@ -100,6 +100,14 @@ func (s *stubCluster) FindOrphanedShards(context.Context, string) ([]int, error)
 func (s *stubCluster) ReassignOrphanedShards(context.Context, string, string) ([]int, error) {
 	return nil, nil
 }
+func (s *stubCluster) SendMetrics(ctx context.Context, workerID string, metrics *cluster.WorkerMetrics) error {
+	return nil
+}
+
+func (s *stubCluster) GetWorkerMetrics(ctx context.Context, workerID string) (*cluster.WorkerMetricsView, error) {
+	return &cluster.WorkerMetricsView{}, nil
+}
+
 func (s *stubCluster) ShardKey(string, int) string { return "" }
 func (s *stubCluster) Secrets() *secrets.Store     { return nil }
 func (s *stubCluster) Prefix() string              { return "" }

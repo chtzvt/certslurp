@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/chtzvt/certslurp/internal/cluster"
 	"github.com/chtzvt/certslurp/internal/job"
+	"github.com/chtzvt/certslurp/internal/testcluster"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubmitJob(t *testing.T) {
@@ -84,4 +87,45 @@ func TestListJobs(t *testing.T) {
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(jobs))
 	}
+}
+
+func TestWorkerMetricsEndpoints(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Register a worker and send some metrics
+	worker := cluster.WorkerInfo{Host: "testhost"}
+	workerID, err := cl.RegisterWorker(ctx, worker)
+	require.NoError(t, err)
+
+	metrics := &cluster.WorkerMetrics{}
+	metrics.IncProcessed()
+	metrics.IncFailed()
+	metrics.AddProcessingTime(123456789)
+	require.NoError(t, cl.SendMetrics(ctx, workerID, metrics))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protected := http.NewServeMux()
+		RegisterWorkerHandlers(protected, cl)
+		protected.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	// GET /api/workers
+	resp, err := http.Get(srv.URL + "/api/workers")
+	require.NoError(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+	var workers []*cluster.WorkerMetricsView
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&workers))
+	require.NotEmpty(t, workers)
+	require.Equal(t, workerID, workers[0].WorkerID)
+
+	// GET /api/workers/{id}
+	resp, err = http.Get(srv.URL + "/api/workers/" + workerID)
+	require.NoError(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+	var wv cluster.WorkerMetricsView
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&wv))
+	require.Equal(t, workerID, wv.WorkerID)
 }

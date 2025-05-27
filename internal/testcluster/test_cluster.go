@@ -11,6 +11,7 @@ import (
 	"github.com/chtzvt/certslurp/internal/job"
 	"github.com/chtzvt/certslurp/internal/testutil"
 	"github.com/stretchr/testify/require"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/embed"
 )
 
@@ -136,4 +137,11 @@ func ExpireShardLease(t *testing.T, cl cluster.Cluster, jobID string, shardID in
 // Helper: convert int to string
 func itoa(i int) string {
 	return fmt.Sprintf("%d", i)
+}
+
+func MustGetEtcdKey(t *testing.T, cli *clientv3.Client, key string) string {
+	resp, err := cli.Get(context.Background(), key)
+	require.NoError(t, err)
+	require.True(t, len(resp.Kvs) > 0, "key %s not found", key)
+	return string(resp.Kvs[0].Value)
 }

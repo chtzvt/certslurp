@@ -80,32 +80,3 @@ func (c *etcdCluster) HeartbeatWorker(ctx context.Context, workerID string) erro
 	_, err = c.client.KeepAliveOnce(ctx, leaseID)
 	return err
 }
-
-func (c *etcdCluster) SendMetrics(ctx context.Context, workerID string, metrics *WorkerMetrics) error {
-	key := path.Join(c.Prefix(), "workers", workerID)
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	resp, err := c.client.Get(ctx, key)
-	if err != nil {
-		return err
-	}
-	if len(resp.Kvs) == 0 {
-		return fmt.Errorf("worker %s not found", workerID)
-	}
-	leaseID := clientv3.LeaseID(resp.Kvs[0].Lease)
-
-	processed, failed, processingTime := metrics.Snapshot()
-
-	txn := c.client.Txn(ctx).Then(
-		clientv3.OpPut(key+"/shards_processed", fmt.Sprintf("%v", processed), clientv3.WithLease(leaseID)),
-		clientv3.OpPut(key+"/shards_failed", fmt.Sprintf("%v", failed), clientv3.WithLease(leaseID)),
-		clientv3.OpPut(key+"/processing_time", fmt.Sprintf("%v", processingTime.Truncate(time.Second)), clientv3.WithLease(leaseID)),
-		clientv3.OpPut(key+"/last_updated", now, clientv3.WithLease(leaseID)),
-	)
-
-	_, err = txn.Commit()
-	if err != nil {
-		return err
-	}
-
-	return err
-}

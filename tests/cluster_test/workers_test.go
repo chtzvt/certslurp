@@ -3,6 +3,7 @@ package cluster_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -58,4 +59,73 @@ func TestCluster_RapidWorkerChurn(t *testing.T) {
 	testutil.WaitFor(t, func() bool {
 		return testcluster.AllShardsDone(t, cl, jobID)
 	}, 7*time.Second, 150*time.Millisecond, "all shards complete despite churn")
+}
+
+func TestSendMetrics(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	worker := cluster.WorkerInfo{Host: "testhost"}
+	workerID, err := cl.RegisterWorker(ctx, worker)
+	require.NoError(t, err)
+	require.NotEmpty(t, workerID)
+
+	// Simulate some activity
+	metrics := &cluster.WorkerMetrics{}
+	metrics.IncProcessed()
+	metrics.IncProcessed()
+	metrics.IncFailed()
+	metrics.AddProcessingTime(5 * time.Second)
+
+	// Send metrics
+	require.NoError(t, cl.SendMetrics(ctx, workerID, metrics))
+
+	// Read back from etcd to assert
+	key := cl.Prefix() + "/workers/" + workerID + "/shards_processed"
+	val := testcluster.MustGetEtcdKey(t, cl.Client(), key)
+	require.Equal(t, "2", val)
+
+	key = cl.Prefix() + "/workers/" + workerID + "/shards_failed"
+	val = testcluster.MustGetEtcdKey(t, cl.Client(), key)
+	require.Equal(t, "1", val)
+
+	key = cl.Prefix() + "/workers/" + workerID + "/processing_time_ns"
+	val = testcluster.MustGetEtcdKey(t, cl.Client(), key)
+	i, err := strconv.ParseInt(val, 10, 64)
+	require.NoError(t, err)
+	require.True(t, i >= int64(5*time.Second))
+}
+
+func TestGetWorkerMetrics(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Register a worker
+	worker := cluster.WorkerInfo{Host: "metrics-host"}
+	workerID, err := cl.RegisterWorker(ctx, worker)
+	require.NoError(t, err)
+	require.NotEmpty(t, workerID)
+
+	// Simulate metrics
+	metrics := &cluster.WorkerMetrics{}
+	metrics.IncProcessed()
+	metrics.IncProcessed()
+	metrics.IncFailed()
+	metrics.AddProcessingTime(42 * time.Second)
+
+	// Send metrics
+	require.NoError(t, cl.SendMetrics(ctx, workerID, metrics))
+
+	// Retrieve metrics
+	vm, err := cl.GetWorkerMetrics(ctx, workerID)
+	require.NoError(t, err)
+	require.NotNil(t, vm)
+
+	require.Equal(t, workerID, vm.WorkerID)
+	require.EqualValues(t, 2, vm.ShardsProcessed)
+	require.EqualValues(t, 1, vm.ShardsFailed)
+	require.GreaterOrEqual(t, vm.ProcessingTimeNs, int64(42*time.Second))
+	require.False(t, vm.LastUpdated.IsZero())
 }
