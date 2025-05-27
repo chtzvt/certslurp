@@ -182,12 +182,12 @@ func (w *Worker) findClaimableShards(ctx context.Context, batchSize int) []int {
 	return claimable
 }
 
-// ScanShard fetches & matches entries for the given range using CT scanner.
-func (w *Worker) ScanShard(ctx context.Context, jobSpec job.JobSpec, from, to int64) ([]*ct.RawLogEntry, error) {
+// StreamShard streams log entries for the given shard range directly into the provided channel.
+// Closes the channel when done or on error.
+func (w *Worker) StreamShard(ctx context.Context, jobSpec job.JobSpec, from, to int64, ch chan<- *ct.RawLogEntry) error {
 	matchCfg := jobSpec.Options.Match
 	fetchCfg := jobSpec.Options.Fetch
 
-	// Create matcher (see previous buildMatcher function)
 	matcher, matcherInit := buildMatcher(matchCfg)
 	opts := scanner.ScannerOptions{
 		FetcherOptions: scanner.FetcherOptions{
@@ -204,7 +204,6 @@ func (w *Worker) ScanShard(ctx context.Context, jobSpec job.JobSpec, from, to in
 		opts.NumWorkers = matchCfg.Workers
 	}
 
-	// Create log client
 	logClient, err := client.New(jobSpec.LogURI, &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -216,30 +215,31 @@ func (w *Worker) ScanShard(ctx context.Context, jobSpec job.JobSpec, from, to in
 			IdleConnTimeout:       90 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
 		},
-	}, jsonclient.Options{UserAgent: "ctsnarf/1.0"})
+	}, jsonclient.Options{UserAgent: "certslurp/1.0"})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create log client: %w", err)
+		close(ch)
+		return fmt.Errorf("failed to create log client: %w", err)
 	}
 	if matcherInit != nil {
 		if err := matcherInit(ctx, logClient); err != nil {
-			return nil, err
+			close(ch)
+			return err
 		}
 	}
 
 	s := scanner.NewScanner(logClient, opts)
-
-	var results []*ct.RawLogEntry
-	var mu sync.Mutex
+	// Send entries to channel as they are found
 	collect := func(entry *ct.RawLogEntry) {
-		mu.Lock()
-		results = append(results, entry)
-		mu.Unlock()
+		select {
+		case ch <- entry:
+		case <-ctx.Done():
+		}
 	}
 	err = s.Scan(ctx, collect, collect)
-	return results, err
+	close(ch)
+	return err
 }
 
-// Update processShardLoop to pass jobSpec to ScanShard
 func (w *Worker) processShardLoop(ctx context.Context, shardID int) {
 	start := time.Now()
 	defer func() {
@@ -257,7 +257,6 @@ func (w *Worker) processShardLoop(ctx context.Context, shardID int) {
 		w.Metrics.IncFailed()
 		return
 	}
-	// Get job spec (must be available to the worker; plug in your mechanism)
 	job, err := w.Cluster.GetJob(ctx, w.JobID)
 	if err != nil {
 		w.Logger.Printf("failed to get job spec: %v", err)
@@ -265,12 +264,7 @@ func (w *Worker) processShardLoop(ctx context.Context, shardID int) {
 		w.Metrics.IncFailed()
 		return
 	}
-	matches, err := w.ScanShard(ctx, *job.Spec, status.IndexFrom, status.IndexTo)
-	if err != nil {
-		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
-		w.Metrics.IncFailed()
-		return
-	}
+
 	// Create ETL pipeline for this shard
 	pipeline, err := etl.NewPipeline(job.Spec, w.Cluster.Secrets(), fmt.Sprintf("job-%s-shard-%d", w.JobID, shardID))
 	if err != nil {
@@ -280,28 +274,36 @@ func (w *Worker) processShardLoop(ctx context.Context, shardID int) {
 		return
 	}
 
-	// Pipe entries into the pipeline
-	entries := make(chan *ct.RawLogEntry, len(matches))
-	for _, e := range matches {
-		entries <- e
+	// Set up a channel and run the ETL pipeline as a goroutine
+	entries := make(chan *ct.RawLogEntry, 32)
+	etlErrCh := make(chan error, 1)
+	go func() {
+		etlErrCh <- pipeline.StreamProcess(ctx, entries)
+	}()
+
+	// Stream the entries directly from the scanner into the channel
+	scanErr := w.StreamShard(ctx, *job.Spec, status.IndexFrom, status.IndexTo, entries)
+	etlErr := <-etlErrCh
+
+	if scanErr != nil {
+		w.Logger.Printf("scanner failed: %v", scanErr)
+		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
+		w.Metrics.IncFailed()
+		return
 	}
-	close(entries)
-	if err := pipeline.StreamProcess(ctx, entries); err != nil {
-		w.Logger.Printf("etl process failed: %v", err)
+	if etlErr != nil {
+		w.Logger.Printf("etl process failed: %v", etlErr)
 		_ = w.Cluster.ReportShardFailed(ctx, w.JobID, shardID)
 		w.Metrics.IncFailed()
 		return
 	}
 
-	// If you want to capture chunk info for the manifest, you can extend the pipeline and stub for that purpose
 	manifest := cluster.ShardManifest{}
-	// e.g. manifest.OutputChunks = pipeline.OutputFiles() (if you want)
-	// Or just set OutputPath to a well-known prefix if needed
 	if err := w.Cluster.ReportShardDone(ctx, w.JobID, shardID, manifest); err != nil {
 		w.Logger.Printf("report done failed: %v", err)
 		w.Metrics.IncFailed()
 		return
 	}
 	w.Metrics.IncProcessed()
-	w.Logger.Printf("shard %d completed (%d matches)", shardID, len(matches))
+	w.Logger.Printf("shard %d completed", shardID)
 }

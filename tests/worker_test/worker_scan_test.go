@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,10 +16,11 @@ import (
 	"github.com/chtzvt/ctsnarf/internal/testutil"
 	"github.com/chtzvt/ctsnarf/internal/testworkers"
 	"github.com/chtzvt/ctsnarf/internal/worker"
+	ct "github.com/google/certificate-transparency-go"
 	"github.com/stretchr/testify/require"
 )
 
-func TestWorker_ScanShard_StubbedCTLog(t *testing.T) {
+func TestWorker_StreamShard_StubbedCTLog(t *testing.T) {
 	ts := testutil.NewStubCTLogServer(t, testutil.CTLogFourEntrySTH, testutil.CTLogFourEntries)
 	defer ts.Close()
 
@@ -34,7 +36,7 @@ func TestWorker_ScanShard_StubbedCTLog(t *testing.T) {
 			Match: job.MatchConfig{
 				SubjectRegex: "mail.google.com",
 			},
-			// Don't need Output for ScanShard-only test
+			// Output not needed for StreamShard-only test
 		},
 	}
 
@@ -44,8 +46,23 @@ func TestWorker_ScanShard_StubbedCTLog(t *testing.T) {
 	w := worker.NewWorker(cluster, "testjob", "worker-1", nil)
 
 	ctx := context.Background()
-	results, err := w.ScanShard(ctx, spec, int64(0), int64(4))
+	entriesCh := make(chan *ct.RawLogEntry, 10)
+	var results []*ct.RawLogEntry
+
+	// Drain channel in a goroutine
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for entry := range entriesCh {
+			results = append(results, entry)
+		}
+	}()
+
+	// StreamShard will close entriesCh when done
+	err := w.StreamShard(ctx, spec, int64(0), int64(4), entriesCh)
 	require.NoError(t, err)
+	wg.Wait()
 
 	// Should find the mail.google.com cert
 	found := false
