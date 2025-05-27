@@ -21,6 +21,25 @@ type JobOptions struct {
 	Output OutputOptions `json:"output"`
 }
 
+type FetchConfig struct {
+	BatchSize  int   `json:"batch_size"`
+	Workers    int   `json:"workers"`
+	IndexStart int64 `json:"index_start"`
+	IndexEnd   int64 `json:"index_end"` // Non-inclusive; 0 = end of log
+}
+
+type MatchConfig struct {
+	SubjectRegex     string `json:"subject_regex,omitempty"`
+	IssuerRegex      string `json:"issuer_regex,omitempty"`
+	Serial           string `json:"serial,omitempty"`
+	SCTTimestamp     uint64 `json:"sct_timestamp,omitempty"`
+	Domain           string `json:"domain,omitempty"`
+	ParseErrors      string `json:"parse_errors,omitempty"` // "all" or "nonfatal"
+	ValidationErrors bool   `json:"validation_errors,omitempty"`
+	PrecertsOnly     bool   `json:"precerts_only,omitempty"`
+	Workers          int    `json:"workers,omitempty"`
+}
+
 type OutputOptions struct {
 	ChunkRecords       int                    `json:"chunk_records"`
 	ChunkBytes         int                    `json:"chunk_bytes"`

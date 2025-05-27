@@ -29,7 +29,7 @@ type Worker struct {
 	PollPeriod  time.Duration
 	LeaseSecs   int
 	Logger      *log.Logger
-	Metrics     *WorkerMetrics
+	Metrics     *cluster.WorkerMetrics
 
 	stopCh  chan struct{}
 	stopped chan struct{}
@@ -45,10 +45,10 @@ const (
 	maxAssignShardRetries  = 5
 )
 
-func NewWorker(cluster cluster.Cluster, id string, logger *log.Logger) *Worker {
+func NewWorker(cl cluster.Cluster, id string, logger *log.Logger) *Worker {
 	return &Worker{
 		ID:          id,
-		Cluster:     cluster,
+		Cluster:     cl,
 		MaxParallel: 4, // configurable
 		BatchSize:   8,
 		PollPeriod:  1 * time.Second,
@@ -56,7 +56,7 @@ func NewWorker(cluster cluster.Cluster, id string, logger *log.Logger) *Worker {
 		Logger:      logger,
 		stopCh:      make(chan struct{}),
 		stopped:     make(chan struct{}),
-		Metrics:     &WorkerMetrics{},
+		Metrics:     &cluster.WorkerMetrics{},
 	}
 }
 
