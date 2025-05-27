@@ -9,26 +9,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDummyExtractor(t *testing.T) {
-	ex := &DummyExtractor{}
+func TestRawExtractor(t *testing.T) {
+	ex := &RawExtractor{}
 	ctx := &etl_core.Context{}
-	raw := &ct.RawLogEntry{} // could be nil for DummyExtractor
+	raw := &ct.RawLogEntry{} // could be nil for RawExtractor
 
 	result, err := ex.Extract(ctx, raw)
 	if err != nil {
-		t.Fatalf("DummyExtractor returned error: %v", err)
+		t.Fatalf("RawExtractor returned error: %v", err)
 	}
 	if result == nil {
-		t.Fatal("DummyExtractor returned nil result")
+		t.Fatal("RawExtractor returned nil result")
 	}
 	if _, ok := result["raw"]; !ok {
-		t.Fatal(`DummyExtractor result missing "raw" key`)
+		t.Fatal(`RawExtractor result missing "raw" key`)
 	}
 }
 
-func TestDummyExtractor_WithRealEntry(t *testing.T) {
+func TestRawExtractor_WithRealEntry(t *testing.T) {
 	raw := testutil.RawLogEntryForTestCert(t, 0)
-	ex := &DummyExtractor{}
+	ex := &RawExtractor{}
 	ctx := &etl_core.Context{}
 
 	got, err := ex.Extract(ctx, raw)

@@ -47,8 +47,8 @@ func SetupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
 func DefaultTestJobOptions() job.JobOptions {
 	return job.JobOptions{
 		Output: job.OutputOptions{
-			Extractor:   "dummy",
-			Transformer: "dummy",
+			Extractor:   "raw",
+			Transformer: "passthrough",
 			Sink:        "null",
 		},
 	}

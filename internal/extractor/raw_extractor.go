@@ -5,12 +5,12 @@ import (
 	ct "github.com/google/certificate-transparency-go"
 )
 
-type DummyExtractor struct{}
+type RawExtractor struct{}
 
-func (e *DummyExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry) (map[string]interface{}, error) {
+func (e *RawExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry) (map[string]interface{}, error) {
 	return map[string]interface{}{"raw": raw.Cert.Data}, nil
 }
 
 func init() {
-	Register("dummy", &DummyExtractor{})
+	Register("raw", &RawExtractor{})
 }

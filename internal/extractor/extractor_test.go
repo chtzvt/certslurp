@@ -9,9 +9,9 @@ import (
 )
 
 func TestForName(t *testing.T) {
-	_, err := ForName("dummy")
+	_, err := ForName("raw")
 	if err != nil {
-		t.Errorf("expected to find registered dummy extractor, got: %v", err)
+		t.Errorf("expected to find registered raw extractor, got: %v", err)
 	}
 	_, err = ForName("nonexistent")
 	if err == nil {
@@ -40,7 +40,7 @@ func TestRegisterAndRetrieve(t *testing.T) {
 }
 
 func TestRegistry(t *testing.T) {
-	ex, err := ForName("dummy")
+	ex, err := ForName("raw")
 	require.NoError(t, err)
 	require.NotNil(t, ex)
 
