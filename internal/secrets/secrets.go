@@ -12,7 +12,8 @@ import (
 type Store struct {
 	etcd     *clientv3.Client
 	keys     nodeKeys
-	nodeID   string
+	NodeID   string
+	prefix   string
 	keyPath  string
 	clusterK [32]byte
 }
@@ -22,7 +23,11 @@ func (s *Store) SetClusterKey(key [32]byte) {
 }
 
 func (s *Store) NodeId() string {
-	return s.nodeID
+	return s.NodeID
+}
+
+func (s *Store) Prefix() string {
+	return s.prefix
 }
 
 func (s *Store) PublicKey() [32]byte {
@@ -36,7 +41,7 @@ func (s *Store) Client() *clientv3.Client {
 // NewStore initializes a Store using the provided etcd client and key path.
 // If no keypair exists at keyPath, a new one is generated and persisted.
 // Returns an error if keypair creation or loading fails.
-func NewStore(etcd *clientv3.Client, keyPath string) (*Store, error) {
+func NewStore(etcd *clientv3.Client, keyPath, prefix string) (*Store, error) {
 	keys, nodeID, err := LoadOrGenerateNodeKeypair(keyPath)
 	if err != nil {
 		return nil, err
@@ -44,7 +49,8 @@ func NewStore(etcd *clientv3.Client, keyPath string) (*Store, error) {
 	return &Store{
 		etcd:    etcd,
 		keys:    keys,
-		nodeID:  nodeID,
+		NodeID:  nodeID,
+		prefix:  prefix,
 		keyPath: keyPath,
 	}, nil
 }

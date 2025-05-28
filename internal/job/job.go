@@ -22,8 +22,16 @@ type JobOptions struct {
 }
 
 type FetchConfig struct {
-	BatchSize  int   `json:"batch_size"`
-	Workers    int   `json:"workers"`
+	// These settings configure the CT scanner brought up by each worker
+	// FetchSize controls the size of the batches of records scanned from the CT log
+	// FetchWorkers controls the parallelism of the scan
+	FetchSize    int `json:"fetch_size"`
+	FetchWorkers int `json:"fetch_workers"`
+
+	// Optional number of shards to create for the job
+	ShardSize int `json:"shard_size"`
+
+	// CT log index range to scan
 	IndexStart int64 `json:"index_start"`
 	IndexEnd   int64 `json:"index_end"` // Non-inclusive; 0 = end of log
 }
@@ -81,10 +89,13 @@ func (j *JobSpec) Validate() error {
 	if j.LogURI == "" {
 		missing = append(missing, "log_uri")
 	}
-	if j.Options.Fetch.BatchSize <= 0 {
-		missing = append(missing, "options.fetch.batch_size")
+	if j.Options.Fetch.FetchSize <= 0 {
+		missing = append(missing, "options.fetch.fetch_size")
 	}
-	if j.Options.Fetch.Workers <= 0 {
+	if j.Options.Fetch.FetchSize <= 0 {
+		missing = append(missing, "options.fetch.shard_size")
+	}
+	if j.Options.Fetch.FetchWorkers <= 0 {
 		missing = append(missing, "options.fetch.workers")
 	}
 	if j.Options.Output.Extractor == "" {

@@ -178,7 +178,7 @@ func TestBootstrapRegistrationFlow(t *testing.T) {
 	keyPath := tempDir + "/node_key"
 
 	// Node will register and block waiting for admin approval
-	store, err := secrets.NewStore(cluster.Client(), keyPath)
+	store, err := secrets.NewStore(cluster.Client(), keyPath, "/certslurp")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -218,7 +218,7 @@ func TestBootstrapRegistrationTimeout(t *testing.T) {
 	t.Cleanup(cleanup2)
 	keyPath := tempDir + "/node_key"
 
-	store, err := secrets.NewStore(cluster.Client(), keyPath)
+	store, err := secrets.NewStore(cluster.Client(), keyPath, "/certslurp")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

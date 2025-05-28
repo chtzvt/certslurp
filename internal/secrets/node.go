@@ -78,12 +78,12 @@ func LoadOrGenerateNodeKeypair(path string) (nodeKeys, string, error) {
 // On success, the Store can be used for secret operations.
 func (n *Store) RegisterAndWaitForClusterKey(ctx context.Context) error {
 	pubB64 := base64.StdEncoding.EncodeToString(n.keys.Public[:])
-	_, err := n.etcd.Put(ctx, "/certslurp/registration/pending/"+n.nodeID, pubB64)
+	_, err := n.etcd.Put(ctx, n.Prefix()+"/registration/pending/"+n.NodeId(), pubB64)
 	if err != nil {
 		return err
 	}
 	for {
-		resp, err := n.etcd.Get(ctx, "/certslurp/secrets/keys/"+n.nodeID)
+		resp, err := n.etcd.Get(ctx, n.Prefix()+"/secrets/keys/"+n.NodeId())
 		if err != nil {
 			return err
 		}
@@ -93,7 +93,7 @@ func (n *Store) RegisterAndWaitForClusterKey(ctx context.Context) error {
 			if ok && len(cKey) == 32 {
 				copy(n.clusterK[:], cKey)
 				// Optional: clean up
-				_, _ = n.etcd.Delete(ctx, "/certslurp/registration/pending/"+n.nodeID)
+				_, _ = n.etcd.Delete(ctx, n.Prefix()+"/registration/pending/"+n.NodeId())
 				return nil
 			}
 		}

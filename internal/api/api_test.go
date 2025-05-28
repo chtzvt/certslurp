@@ -19,7 +19,7 @@ func TestSubmitJob(t *testing.T) {
 	defer server.Close()
 
 	client := &http.Client{}
-	body := `{"version":"1.0.0","log_uri":"test","options":{"fetch":{"batch_size":10,"workers":1,"index_start":0,"index_end":100},"match":{},"output":{"extractor":"raw","transformer":"none","sink":"null"}}}`
+	body := `{"version":"1.0.0","log_uri":"test","options":{"fetch":{"fetch_size":10,"fetch_workers":1,"index_start":0,"index_end":100},"match":{},"output":{"extractor":"raw","transformer":"passthrough","sink":"null"}}}`
 	req, _ := http.NewRequest("POST", server.URL+"/api/jobs", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer testtoken")
 	req.Header.Set("Content-Type", "application/json")
@@ -43,7 +43,7 @@ func TestGetJob(t *testing.T) {
 	defer server.Close()
 
 	// Pre-load a job:
-	spec := &job.JobSpec{Version: "1.0.0", LogURI: "test", Options: job.JobOptions{Fetch: job.FetchConfig{BatchSize: 10, Workers: 1}}}
+	spec := &job.JobSpec{Version: "1.0.0", LogURI: "test", Options: job.JobOptions{Fetch: job.FetchConfig{FetchSize: 10, FetchWorkers: 1}}}
 	jobID, _ := stub.SubmitJob(context.Background(), spec)
 
 	client := &http.Client{}
@@ -68,7 +68,7 @@ func TestListJobs(t *testing.T) {
 	server, stub := setupAuthTestServer("testtoken")
 	defer server.Close()
 
-	spec := &job.JobSpec{Version: "1.0.0", LogURI: "test", Options: job.JobOptions{Fetch: job.FetchConfig{BatchSize: 10, Workers: 1}}}
+	spec := &job.JobSpec{Version: "1.0.0", LogURI: "test", Options: job.JobOptions{Fetch: job.FetchConfig{FetchSize: 10, FetchWorkers: 1}}}
 	_, _ = stub.SubmitJob(context.Background(), spec)
 
 	client := &http.Client{}

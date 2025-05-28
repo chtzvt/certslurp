@@ -46,7 +46,7 @@ func setupTestStore(t *testing.T) *secrets.Store {
 	t.Cleanup(cleanup2)
 
 	keyPath := filepath.Join(tempDir, "test_node_key")
-	store, err := secrets.NewStore(cluster.Client(), keyPath)
+	store, err := secrets.NewStore(cluster.Client(), keyPath, "/certslurp")
 	if err != nil {
 		t.Fatalf("Failed to create Store: %v", err)
 	}

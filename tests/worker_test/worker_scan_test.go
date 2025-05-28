@@ -26,10 +26,10 @@ func TestWorker_StreamShard_StubbedCTLog(t *testing.T) {
 		LogURI: ts.URL,
 		Options: job.JobOptions{
 			Fetch: job.FetchConfig{
-				BatchSize:  2,
-				Workers:    1,
-				IndexStart: 0,
-				IndexEnd:   4,
+				FetchSize:    2,
+				FetchWorkers: 1,
+				IndexStart:   0,
+				IndexEnd:     4,
 			},
 			Match: job.MatchConfig{
 				SubjectRegex: "mail.google.com",
@@ -83,10 +83,10 @@ func TestWorkerE2E_ExtractsExpectedCerts(t *testing.T) {
 
 	opts := job.JobOptions{
 		Fetch: job.FetchConfig{
-			BatchSize:  2,
-			Workers:    1,
-			IndexStart: 0,
-			IndexEnd:   1, // Get first cert (testutil.CTLogEntry0)
+			FetchSize:    2,
+			FetchWorkers: 1,
+			IndexStart:   0,
+			IndexEnd:     1, // Get first cert (testutil.CTLogEntry0)
 		},
 		Match: job.MatchConfig{
 			SubjectRegex: "mail.google.com",

@@ -319,8 +319,8 @@ func (w *Worker) StreamShard(ctx context.Context, jobSpec job.JobSpec, from, to 
 	matcher, matcherInit := buildMatcher(matchCfg)
 	opts := scanner.ScannerOptions{
 		FetcherOptions: scanner.FetcherOptions{
-			BatchSize:     fetchCfg.BatchSize,
-			ParallelFetch: fetchCfg.Workers,
+			BatchSize:     fetchCfg.FetchSize,
+			ParallelFetch: fetchCfg.FetchWorkers,
 			StartIndex:    from,
 			EndIndex:      to,
 		},

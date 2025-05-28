@@ -15,8 +15,8 @@ func TestLoadJobSpecJSON(t *testing.T) {
 	"log_uri": "https://ct.googleapis.com/aviator",
 	"options": {
 		"fetch": {
-			"batch_size": 1000,
-			"workers": 2,
+			"fetch_size": 1000,
+			"fetch_workers": 2,
 			"index_start": 0,
 			"index_end": 0
 		},
@@ -62,11 +62,12 @@ func TestJobLoadAndValidate(t *testing.T) {
 		"version": "0.1.0",
 		"log_uri": "https://ct.googleapis.com/rocketeer",
 		"options": {
-			"fetch": {"batch_size": 100, "workers": 2, "index_start": 0, "index_end": 0},
+			"fetch": {"fetch_size": 100, "fetch_workers": 2, "index_start": 0, "index_end": 0},
 			"match": {},
 			"output": {
-				"transformer": {"transformer": "jsonl"},
-				"target": {"target": "disk"}
+				"extractor": "cert_fields",	
+				"transformer": "jsonl",
+				"sink": "disk"
 			}
 		}
 	}`
@@ -82,8 +83,8 @@ func TestJobLoadAndValidate(t *testing.T) {
 func TestJobLoad_MissingFields(t *testing.T) {
 	const missing = `{
 		"options": {
-			"fetch": {"batch_size": 0, "workers": 0, "index_start": 0, "index_end": 0},
-			"output": {"transformer": {}, "target": {}}
+			"fetch": {"fetch_size": 0, "fetch_workers": 0, "index_start": 0, "index_end": 0},
+			"output": {"transformer": {}, "sink": {}}
 		}
 	}`
 	_, err := Load(strings.NewReader(missing))
