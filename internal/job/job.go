@@ -92,9 +92,6 @@ func (j *JobSpec) Validate() error {
 	if j.Options.Fetch.FetchSize <= 0 {
 		missing = append(missing, "options.fetch.fetch_size")
 	}
-	if j.Options.Fetch.FetchSize <= 0 {
-		missing = append(missing, "options.fetch.shard_size")
-	}
 	if j.Options.Fetch.FetchWorkers <= 0 {
 		missing = append(missing, "options.fetch.workers")
 	}
@@ -105,7 +102,7 @@ func (j *JobSpec) Validate() error {
 		missing = append(missing, "options.output.transformer")
 	}
 	if j.Options.Output.Sink == "" {
-		missing = append(missing, "options.output.target")
+		missing = append(missing, "options.output.sink")
 	}
 
 	if len(missing) > 0 {

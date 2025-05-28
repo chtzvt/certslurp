@@ -44,6 +44,7 @@ func (s *Server) Start(ctx context.Context) error {
 	RegisterJobHandlers(protected, s.Cluster)
 	RegisterWorkerHandlers(protected, s.Cluster)
 	RegisterSecretHandlers(protected, s.Cluster)
+	RegisterStatusHandler(protected, s.Cluster)
 	mux.Handle("/api/", TokenAuthMiddleware(s.Config.AuthTokens, protected))
 
 	s.server = &http.Server{

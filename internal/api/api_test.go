@@ -16,6 +16,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAuthRequired_AllEndpoints(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+
+	protected := http.NewServeMux()
+	RegisterJobHandlers(protected, cl)
+	RegisterWorkerHandlers(protected, cl)
+	RegisterSecretHandlers(protected, cl)
+
+	// Wrap with auth middleware using some fake tokens
+	tokens := []string{"testtoken"}
+	handler := TokenAuthMiddleware(tokens, protected)
+
+	// Try job endpoints
+	requireUnauthorized(t, "GET", "/api/jobs", handler)
+	requireUnauthorized(t, "POST", "/api/jobs", handler)
+	requireUnauthorized(t, "GET", "/api/jobs/someid", handler)
+	// Try worker endpoints
+	requireUnauthorized(t, "GET", "/api/workers", handler)
+	requireUnauthorized(t, "GET", "/api/workers/someworker", handler)
+	// Try secrets endpoints
+	requireUnauthorized(t, "GET", "/api/secrets/store", handler)
+	requireUnauthorized(t, "GET", "/api/secrets/store/somekey", handler)
+	requireUnauthorized(t, "POST", "/api/secrets/nodes/approve", handler)
+}
+
+func TestAuthRequired_InvalidToken(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+
+	protected := http.NewServeMux()
+	RegisterJobHandlers(protected, cl)
+	handler := TokenAuthMiddleware([]string{"testtoken"}, protected)
+
+	req := httptest.NewRequest("GET", "/api/jobs", nil)
+	req.Header.Set("Authorization", "Bearer WRONGTOKEN")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
 func TestSubmitJob(t *testing.T) {
 	server, _ := setupAuthTestServer("testtoken")
 	defer server.Close()

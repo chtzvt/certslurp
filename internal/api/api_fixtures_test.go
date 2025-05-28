@@ -13,6 +13,7 @@ import (
 	"github.com/chtzvt/certslurp/internal/job"
 	"github.com/chtzvt/certslurp/internal/secrets"
 	"github.com/chtzvt/certslurp/internal/testcluster"
+	"github.com/stretchr/testify/require"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -61,6 +62,16 @@ func setupAuthTestServer(token string) (*httptest.Server, *stubCluster) {
 	RegisterJobHandlers(mux, stub)
 	server := httptest.NewServer(TokenAuthMiddleware([]string{token}, mux))
 	return server, stub
+}
+
+// Helper to run an endpoint and check unauthorized response
+func requireUnauthorized(t *testing.T, method, url string, handler http.Handler) {
+	t.Helper()
+	req := httptest.NewRequest(method, url, nil)
+	// No Authorization header!
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusUnauthorized, rec.Code, "Expected 401 Unauthorized for missing token")
 }
 
 func setupSecretsTestServer(t *testing.T) (*httptest.Server, cluster.Cluster) {

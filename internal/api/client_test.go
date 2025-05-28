@@ -44,7 +44,7 @@ func TestClient_GetWorkerMetrics(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer testtoken", r.Header.Get("Authorization"))
-		require.Equal(t, "/api/workers/w1/metrics", r.URL.Path)
+		require.Equal(t, "/api/workers/w1", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(expected)
 	}))
