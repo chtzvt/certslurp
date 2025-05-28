@@ -28,14 +28,16 @@ func TestCertFieldsExtractor_BadRaw(t *testing.T) {
 	require.Nil(t, got)
 }
 
-func TestCertFieldsExtractor_X509Cert_DefaultFields(t *testing.T) {
+func TestCertFieldsExtractor_X509Cert_AllGlobDefaultFields(t *testing.T) {
 	raw := testutil.RawLogEntryForTestCert(t, 0)
 	ex := &CertFieldsExtractor{}
 
 	jobSpec := job.JobSpec{
 		Options: job.JobOptions{
 			Output: job.OutputOptions{
-				ExtractorOptions: map[string]interface{}{},
+				ExtractorOptions: map[string]interface{}{
+					"cert_fields": "*",
+				},
 			},
 		},
 	}
@@ -47,7 +49,6 @@ func TestCertFieldsExtractor_X509Cert_DefaultFields(t *testing.T) {
 	got, err := ex.Extract(ctx, raw)
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	require.Contains(t, got, "cn")
 	require.Contains(t, got, "iss")
 	require.Contains(t, got, "sub")
 	require.Contains(t, got, "nbf")
@@ -116,7 +117,7 @@ func TestCertFieldsExtractor_EmptySpec_UsesDefaults(t *testing.T) {
 
 	got, err := ex.Extract(ctx, raw)
 	require.NoError(t, err)
-	require.Contains(t, got, "cn") // Should have common name by default
+	require.Empty(t, got) // Should be empty by default
 }
 
 func TestCertFieldsExtractor_FieldTypes(t *testing.T) {

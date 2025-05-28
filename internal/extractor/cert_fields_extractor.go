@@ -69,9 +69,9 @@ type CertFieldsExtractorOptions struct {
 }
 
 const (
-	CertFieldsExtractorDefaultCertFields    string = "*"
-	CertFieldsExtractorDefaultPreCertFields string = "*"
-	CertFieldsExtractorDefaultLogFields     string = "*"
+	CertFieldsExtractorDefaultCertFields    string = ""
+	CertFieldsExtractorDefaultPreCertFields string = ""
+	CertFieldsExtractorDefaultLogFields     string = ""
 )
 
 type CertFieldsExtractorCertFunc func(cert *x509.Certificate) (string, interface{}, error)
@@ -229,6 +229,28 @@ func (e *CertFieldsExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry
 			outKey, val, err := fn(raw)
 			if err == nil && outKey != "" && val != nil {
 				result[outKey] = val
+			}
+		}
+	}
+
+	// Remove keys with nil or empty values
+	for k, v := range result {
+		if v == nil {
+			delete(result, k)
+		} else {
+			switch vv := v.(type) {
+			case string:
+				if vv == "" {
+					delete(result, k)
+				}
+			case []string:
+				if len(vv) == 0 {
+					delete(result, k)
+				}
+			case []interface{}:
+				if len(vv) == 0 {
+					delete(result, k)
+				}
 			}
 		}
 	}

@@ -44,6 +44,7 @@ type MatchConfig struct {
 	Domain           string `json:"domain,omitempty"`
 	ParseErrors      string `json:"parse_errors,omitempty"` // "all" or "nonfatal"
 	ValidationErrors bool   `json:"validation_errors,omitempty"`
+	SkipPrecerts     bool   `json:"skip_precerts,omitempty"`
 	PrecertsOnly     bool   `json:"precerts_only,omitempty"`
 	Workers          int    `json:"workers,omitempty"`
 }

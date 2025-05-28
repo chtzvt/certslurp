@@ -27,7 +27,7 @@ func (c *etcdCluster) RegisterWorker(ctx context.Context, info WorkerInfo) (stri
 	key := path.Join(c.Prefix(), "workers", workerID)
 	val, _ := json.Marshal(info)
 
-	lease, err := c.client.Grant(ctx, 15)
+	lease, err := c.client.Grant(ctx, 150)
 	if err != nil {
 		return "", err
 	}
