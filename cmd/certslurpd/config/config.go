@@ -3,8 +3,7 @@ package config
 import "github.com/chtzvt/certslurp/internal/api"
 
 type NodeConfig struct {
-	ID   string `mapstructure:"id"`
-	Type string `mapstructure:"type"`
+	ID string `mapstructure:"id"`
 }
 
 type EtcdConfig struct {

@@ -59,13 +59,30 @@ func newCluster(cfg *config.ClusterConfig) (cluster.Cluster, error) {
 		cfg.Node.ID = hostname
 	}
 
+	keychainFile := cfg.Secrets.KeychainFile
+	if keychainFile == "" {
+		tmpFile, err := os.CreateTemp("", "certslurpd-keychain-*.bin")
+		if err != nil {
+			return nil, fmt.Errorf("unable to create temporary keychain file: %w", err)
+		}
+		keychainFile = tmpFile.Name()
+		tmpFile.Close()
+	}
+
+	var etcdPrefix string
+	if cfg.Etcd.Prefix == "" {
+		etcdPrefix = "/certslurp"
+	} else {
+		etcdPrefix = cfg.Etcd.Prefix
+	}
+
 	etcdCfg := cluster.EtcdConfig{
 		Endpoints:    cfg.Etcd.Endpoints,
 		Username:     cfg.Etcd.Username,
 		Password:     cfg.Etcd.Password,
-		Prefix:       cfg.Etcd.Prefix,
+		Prefix:       etcdPrefix,
 		DialTimeout:  5 * time.Second,
-		KeychainFile: cfg.Secrets.KeychainFile,
+		KeychainFile: keychainFile,
 	}
 
 	cl, err := cluster.NewEtcdCluster(etcdCfg)
@@ -83,10 +100,16 @@ func runWorker(cfg *config.ClusterConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to etcd: %w", err)
 	}
-
 	defer cl.Close()
 
 	logger := log.New(os.Stdout, "[worker] ", log.LstdFlags)
+
+	logger.Println("Registering worker and waiting for admin to approve secrets...")
+
+	cl.Secrets().RegisterAndWaitForClusterKey(context.TODO())
+
+	logger.Println("Registration complete. Starting...")
+
 	w := worker.NewWorker(cl, cfg.Node.ID, logger)
 	return w.Run(cmdContext())
 }
@@ -99,10 +122,10 @@ func runHead(cfg *config.ClusterConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to etcd: %w", err)
 	}
-
 	defer cl.Close()
 
 	logger := log.New(os.Stdout, "[api] ", log.LstdFlags)
+	logger.Printf("Starting API server on %s\n", cfg.Api.ListenAddr)
 	apiServer := api.NewServer(cl, cfg.Api, logger)
 	return apiServer.Start(ctx)
 }
