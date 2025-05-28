@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -128,4 +130,145 @@ func TestWorkerMetricsEndpoints(t *testing.T) {
 	var wv cluster.WorkerMetricsView
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&wv))
 	require.Equal(t, workerID, wv.WorkerID)
+}
+
+func TestAPI_ListPendingNodes(t *testing.T) {
+	server, cl := setupSecretsTestServer(t)
+	store := cl.Secrets()
+	ctx := context.TODO()
+
+	// Simulate a pending registration
+	nodeID := "node123"
+	pubB64 := base64.StdEncoding.EncodeToString([]byte("publickey_32bytes______________"))
+	_, err := store.Client().Put(ctx, store.Prefix()+"/registration/pending/"+nodeID, pubB64)
+	require.NoError(t, err)
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/secrets/nodes/pending", nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+	var out []map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.True(t, len(out) >= 1)
+	require.Equal(t, nodeID, out[0]["node_id"])
+	require.Equal(t, pubB64, out[0]["public_key"])
+}
+
+func TestAPI_ApproveNode(t *testing.T) {
+	server, cl := setupSecretsTestServer(t)
+	store := cl.Secrets()
+	ctx := context.TODO()
+
+	// Simulate pending registration
+	nodeID := "n321"
+	pub := [32]byte{}
+	copy(pub[:], []byte("pubkey_for_approve_node______"))
+	pubB64 := base64.StdEncoding.EncodeToString(pub[:])
+	_, err := store.Client().Put(ctx, store.Prefix()+"/registration/pending/"+nodeID, pubB64)
+	require.NoError(t, err)
+
+	// Create a cluster key
+	var clusterKey [32]byte
+	copy(clusterKey[:], []byte("supersecret32byteclusterkey__"))
+	clusterKeyB64 := base64.StdEncoding.EncodeToString(clusterKey[:])
+
+	body := map[string]string{"node_id": nodeID, "cluster_key": clusterKeyB64}
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", server.URL+"/api/secrets/nodes/approve", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 204, resp.StatusCode)
+
+	// The sealed key should now be present and pending deleted
+	kv, err := store.Client().Get(ctx, store.Prefix()+"/secrets/keys/"+nodeID)
+	require.NoError(t, err)
+	require.True(t, len(kv.Kvs) == 1)
+	// The pending registration should be gone
+	kv, err = store.Client().Get(ctx, store.Prefix()+"/registration/pending/"+nodeID)
+	require.NoError(t, err)
+	require.True(t, len(kv.Kvs) == 0)
+}
+
+func TestAPI_SecretStoreLifecycle(t *testing.T) {
+	server, cl := setupSecretsTestServer(t)
+	if cl == nil {
+		t.Error("no cluster")
+	}
+	testKey := "topsecret"
+	testValue := []byte("this is the real secret")
+
+	// --- PUT ---
+	b64Val := base64.StdEncoding.EncodeToString(testValue)
+	putBody := `{"value":"` + b64Val + `"}`
+
+	putReq, _ := http.NewRequest("PUT", server.URL+"/api/secrets/store/"+testKey, strings.NewReader(putBody))
+	putReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(putReq)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 204, resp.StatusCode)
+
+	// --- GET ---
+	getReq, _ := http.NewRequest("GET", server.URL+"/api/secrets/store/"+testKey, nil)
+	resp, err = http.DefaultClient.Do(getReq)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+	var getOut map[string]string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&getOut))
+	encVal, ok := getOut["value"]
+	require.True(t, ok)
+	// Value should be base64 encoded (still encrypted)
+	require.NotEmpty(t, encVal)
+	// Can't test raw value match, as it's encrypted, but should be base64
+	_, err = base64.StdEncoding.DecodeString(encVal)
+	require.NoError(t, err)
+
+	// --- LIST ---
+	listReq, _ := http.NewRequest("GET", server.URL+"/api/secrets/store", nil)
+	resp, err = http.DefaultClient.Do(listReq)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+	var keys []string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&keys))
+	require.Contains(t, keys, testKey)
+
+	// --- DELETE ---
+	delReq, _ := http.NewRequest("DELETE", server.URL+"/api/secrets/store/"+testKey, nil)
+	resp, err = http.DefaultClient.Do(delReq)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 204, resp.StatusCode)
+
+	// --- GET (deleted) ---
+	getReq2, _ := http.NewRequest("GET", server.URL+"/api/secrets/store/"+testKey, nil)
+	resp, err = http.DefaultClient.Do(getReq2)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 404, resp.StatusCode)
+}
+
+func TestAPI_ListSecretsWithPrefix(t *testing.T) {
+	server, cl := setupSecretsTestServer(t)
+	store := cl.Secrets()
+	ctx := context.TODO()
+
+	_ = store.Set(ctx, "a/b/c", []byte("v1"))
+	_ = store.Set(ctx, "a/b/d", []byte("v2"))
+	_ = store.Set(ctx, "x/y/z", []byte("v3"))
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/secrets/store?prefix=a/b", nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+	var keys []string
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&keys))
+	require.Contains(t, keys, "a/b/c")
+	require.Contains(t, keys, "a/b/d")
+	require.NotContains(t, keys, "x/y/z")
 }

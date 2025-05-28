@@ -8,44 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chtzvt/certslurp/internal/cluster"
 	"github.com/chtzvt/certslurp/internal/secrets"
 	"github.com/chtzvt/certslurp/internal/testcluster"
 	"github.com/chtzvt/certslurp/internal/testutil"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/etcd/server/v3/embed"
 	"golang.org/x/crypto/nacl/box"
 )
-
-// Start an embedded etcd cluster for test, return cluster + cleanup
-func SetupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
-	t.Helper()
-	cfg := embed.NewConfig()
-	cfg.Dir = t.TempDir()
-	cfg.Logger = "zap"
-	cfg.LogLevel = "error"
-	e, err := embed.StartEtcd(cfg)
-	require.NoError(t, err)
-
-	select {
-	case <-e.Server.ReadyNotify():
-	case <-time.After(10 * time.Second):
-		t.Fatal("etcd server did not become ready in time")
-	}
-
-	cl, err := cluster.NewEtcdCluster(cluster.EtcdConfig{
-		Endpoints:   []string{e.Clients[0].Addr().String()},
-		DialTimeout: 2 * time.Second,
-		Prefix:      "/certslurp_test_" + testutil.RandString(5),
-	})
-	require.NoError(t, err)
-
-	cleanup := func() {
-		_ = cl.Close()
-		e.Close()
-	}
-	return cl, cleanup
-}
 
 func TestSetAndGet(t *testing.T) {
 	store := SetupTestStore(t)

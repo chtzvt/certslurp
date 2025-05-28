@@ -34,6 +34,9 @@ func NewEtcdCluster(cfg EtcdConfig) (Cluster, error) {
 	}
 
 	secretStore, err := secrets.NewStore(cli, cfg.KeychainFile, cfg.Prefix)
+	if err != nil {
+		return &etcdCluster{}, err
+	}
 
 	return &etcdCluster{
 		client:  cli,

@@ -32,9 +32,10 @@ func SetupEtcdCluster(t *testing.T) (cluster.Cluster, func()) {
 	}
 
 	cl, err := cluster.NewEtcdCluster(cluster.EtcdConfig{
-		Endpoints:   []string{e.Clients[0].Addr().String()},
-		DialTimeout: 2 * time.Second,
-		Prefix:      "/certslurp_test_" + testutil.RandString(5),
+		Endpoints:    []string{e.Clients[0].Addr().String()},
+		DialTimeout:  2 * time.Second,
+		KeychainFile: cfg.Dir + "/certslurp_keychain",
+		Prefix:       "/certslurp_test_" + testutil.RandString(5),
 	})
 	require.NoError(t, err)
 

@@ -7,10 +7,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"testing"
 
 	"github.com/chtzvt/certslurp/internal/cluster"
 	"github.com/chtzvt/certslurp/internal/job"
 	"github.com/chtzvt/certslurp/internal/secrets"
+	"github.com/chtzvt/certslurp/internal/testcluster"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -59,6 +61,16 @@ func setupAuthTestServer(token string) (*httptest.Server, *stubCluster) {
 	RegisterJobHandlers(mux, stub)
 	server := httptest.NewServer(TokenAuthMiddleware([]string{token}, mux))
 	return server, stub
+}
+
+func setupSecretsTestServer(t *testing.T) (*httptest.Server, cluster.Cluster) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	t.Cleanup(cleanup)
+	mux := http.NewServeMux()
+	RegisterSecretHandlers(mux, cl)
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	return server, cl
 }
 
 // Other methods of cluster.Cluster can panic/return errors as not needed for this package's test suite

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -56,4 +57,122 @@ func TestClient_GetWorkerMetrics(t *testing.T) {
 	require.Equal(t, expected.ShardsProcessed, metrics.ShardsProcessed)
 	require.Equal(t, expected.ShardsFailed, metrics.ShardsFailed)
 	require.Equal(t, expected.ProcessingTimeNs, metrics.ProcessingTimeNs)
+}
+
+func TestClient_ListPendingNodes(t *testing.T) {
+	respData := []map[string]string{
+		{"node_id": "abc123", "public_key": "b64pubkey"},
+		{"node_id": "xyz789", "public_key": "pubkey2"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer testtoken", r.Header.Get("Authorization"))
+		require.Equal(t, "/api/secrets/nodes/pending", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(respData)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "testtoken")
+	nodes, err := client.ListPendingNodes(context.Background())
+	require.NoError(t, err)
+	require.Len(t, nodes, 2)
+	require.Equal(t, "abc123", nodes[0].NodeID)
+	require.Equal(t, "b64pubkey", nodes[0].PubKeyB64)
+}
+
+func TestClient_ApproveNode(t *testing.T) {
+	// Expect: POST body with node_id and cluster_key
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		require.Equal(t, "Bearer testtoken", r.Header.Get("Authorization"))
+		require.Equal(t, "/api/secrets/nodes/approve", r.URL.Path)
+		require.Equal(t, "POST", r.Method)
+		var req map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.Equal(t, "n123", req["node_id"])
+		require.Equal(t, "deadbeef", req["cluster_key"])
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "testtoken")
+	err := client.ApproveNode(context.Background(), "n123", "deadbeef")
+	require.NoError(t, err)
+	require.True(t, called)
+}
+
+func TestClient_ListSecrets(t *testing.T) {
+	keys := []string{"a", "b/x", "c"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer testtoken", r.Header.Get("Authorization"))
+		// test prefix handling
+		require.Contains(t, r.URL.String(), "/api/secrets/store")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(keys)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "testtoken")
+	out, err := client.ListSecrets(context.Background(), "")
+	require.NoError(t, err)
+	require.Equal(t, keys, out)
+
+	// with prefix
+	_, err = client.ListSecrets(context.Background(), "b/")
+	require.NoError(t, err)
+}
+
+func TestClient_GetSecret(t *testing.T) {
+	expected := []byte("my encrypted value")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer testtoken", r.Header.Get("Authorization"))
+		require.Contains(t, r.URL.Path, "/api/secrets/store/mykey")
+		val := base64.StdEncoding.EncodeToString(expected)
+		_ = json.NewEncoder(w).Encode(map[string]string{"value": val})
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "testtoken")
+	val, err := client.GetSecret(context.Background(), "mykey")
+	require.NoError(t, err)
+	require.Equal(t, expected, val)
+}
+
+func TestClient_PutSecret(t *testing.T) {
+	received := []byte{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "PUT", r.Method)
+		require.Equal(t, "Bearer testtoken", r.Header.Get("Authorization"))
+		var req map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		data, err := base64.StdEncoding.DecodeString(req["value"])
+		require.NoError(t, err)
+		received = data
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "testtoken")
+	val := []byte("write this")
+	err := client.PutSecret(context.Background(), "mykey", val)
+	require.NoError(t, err)
+	require.Equal(t, val, received)
+}
+
+func TestClient_DeleteSecret(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		require.Equal(t, "DELETE", r.Method)
+		require.Equal(t, "Bearer testtoken", r.Header.Get("Authorization"))
+		require.Contains(t, r.URL.Path, "/api/secrets/store/mykey")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "testtoken")
+	err := client.DeleteSecret(context.Background(), "mykey")
+	require.NoError(t, err)
+	require.True(t, called)
 }
