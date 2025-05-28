@@ -10,23 +10,23 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
-// GenerateAndStoreClusterKey creates a new random cluster key and stores it in etcd
-// under the cluster key path. Only needed for initial cluster bootstrapping.
-func GenerateAndStoreClusterKey(ctx context.Context, etcd *clientv3.Client, prefix string) ([32]byte, error) {
+// GenerateClusterKey creates a new random cluster key
+func GenerateClusterKey() ([32]byte, error) {
 	var clusterKey [32]byte
+	var err error
+
 	if _, err := rand.Read(clusterKey[:]); err != nil {
 		return clusterKey, err
 	}
-	b64 := base64.StdEncoding.EncodeToString(clusterKey[:])
-	_, err := etcd.Put(ctx, prefix+"/secrets/cluster_key", b64)
+
 	return clusterKey, err
 }
 
 // ApproveNode is used by an administrator to approve a pending node registration.
 // Encrypts the cluster key with the node's public key and stores it in etcd.
 // Removes the pending registration after approval.
-func ApproveNode(ctx context.Context, etcd *clientv3.Client, nodeID string, prefix string, clusterKey [32]byte) error {
-	resp, err := etcd.Get(ctx, prefix+"/registration/pending/"+nodeID)
+func (n *Store) ApproveNode(ctx context.Context, nodeID string, clusterKey [32]byte) error {
+	resp, err := n.etcd.Get(ctx, n.Prefix()+"/registration/pending/"+nodeID)
 	if err != nil || len(resp.Kvs) == 0 {
 		return errors.New("pending registration not found")
 	}
@@ -42,7 +42,32 @@ func ApproveNode(ctx context.Context, etcd *clientv3.Client, nodeID string, pref
 		return err
 	}
 	sealedB64 := base64.StdEncoding.EncodeToString(sealed)
-	_, err = etcd.Put(ctx, prefix+"/secrets/keys/"+nodeID, sealedB64)
-	_, _ = etcd.Delete(ctx, prefix+"/registration/pending/"+nodeID)
+	_, err = n.etcd.Put(ctx, n.Prefix()+"/secrets/keys/"+nodeID, sealedB64)
+	_, _ = n.etcd.Delete(ctx, n.Prefix()+"/registration/pending/"+nodeID)
 	return err
+}
+
+// PendingRegistration represents a node that has requested cluster access.
+type PendingRegistration struct {
+	NodeID    string
+	PubKeyB64 string // raw base64 public key
+}
+
+// ListPendingRegistrations lists all nodeIDs currently pending approval.
+func (s *Store) ListPendingRegistrations(ctx context.Context) ([]PendingRegistration, error) {
+	prefix := s.Prefix() + "/registration/pending/"
+	resp, err := s.etcd.Get(ctx, prefix, clientv3.WithPrefix())
+	if err != nil {
+		return nil, err
+	}
+	pending := make([]PendingRegistration, 0, len(resp.Kvs))
+	for _, kv := range resp.Kvs {
+		key := string(kv.Key)
+		nodeID := key[len(prefix):]
+		pending = append(pending, PendingRegistration{
+			NodeID:    nodeID,
+			PubKeyB64: string(kv.Value),
+		})
+	}
+	return pending, nil
 }

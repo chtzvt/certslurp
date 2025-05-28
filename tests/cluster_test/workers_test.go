@@ -46,15 +46,15 @@ func TestCluster_RapidWorkerChurn(t *testing.T) {
 
 	workerCount := 5
 	for i := 0; i < workerCount; i++ {
-		w := worker.NewWorker(cl, fmt.Sprintf("churn-%d", i), logger)
-		go func(w *worker.Worker) {
-			for j := 0; j < 3; j++ { // Start/stop each worker multiple times
+		go func(workerIdx int) {
+			for j := 0; j < 3; j++ {
+				w := worker.NewWorker(cl, fmt.Sprintf("churn-%d-%d", workerIdx, j), logger)
 				wCtx, cancel := context.WithTimeout(ctx, time.Duration(500+100*j)*time.Millisecond)
 				go func() { _ = w.Run(wCtx) }()
 				time.Sleep(300 * time.Millisecond)
 				cancel()
 			}
-		}(w)
+		}(i)
 	}
 	testutil.WaitFor(t, func() bool {
 		return testcluster.AllShardsDone(t, cl, jobID)

@@ -14,7 +14,7 @@ import (
 // List returns all secret keys in etcd with the given prefix ("" for all).
 // The returned keys are relative (prefix removed).
 func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
-	keyPrefix := "/certslurp/secrets/store/"
+	keyPrefix := s.Prefix() + "/secrets/store/"
 	if prefix != "" {
 		keyPrefix += prefix
 	}
@@ -26,7 +26,7 @@ func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
 	for _, kv := range resp.Kvs {
 		k := string(kv.Key)
 		// Strip leading prefix, return relative key
-		keys = append(keys, strings.TrimPrefix(k, "/certslurp/secrets/store/"))
+		keys = append(keys, strings.TrimPrefix(k, s.Prefix()+"/secrets/store/"))
 	}
 	return keys, nil
 }
@@ -38,14 +38,14 @@ func (n *Store) Set(ctx context.Context, key string, value []byte) error {
 	_, _ = rand.Read(nonce[:])
 	sealed := secretbox.Seal(nonce[:], value, &nonce, &n.clusterK)
 	b64 := base64.StdEncoding.EncodeToString(sealed)
-	_, err := n.etcd.Put(ctx, "/certslurp/secrets/store/"+key, b64)
+	_, err := n.etcd.Put(ctx, n.Prefix()+"/secrets/store/"+key, b64)
 	return err
 }
 
 // Get retrieves and decrypts the value associated with the given key.
 // Returns the plaintext or an error if the key is not found or decryption fails.
 func (n *Store) Get(ctx context.Context, key string) ([]byte, error) {
-	resp, err := n.etcd.Get(ctx, "/certslurp/secrets/store/"+key)
+	resp, err := n.etcd.Get(ctx, n.Prefix()+"/secrets/store/"+key)
 	if err != nil || len(resp.Kvs) == 0 {
 		return nil, errors.New("secret not found")
 	}
@@ -65,6 +65,6 @@ func (n *Store) Get(ctx context.Context, key string) ([]byte, error) {
 // Delete removes the secret stored under the given key from etcd.
 // Returns an error if the operation fails.
 func (s *Store) Delete(ctx context.Context, key string) error {
-	_, err := s.etcd.Delete(ctx, "/certslurp/secrets/store/"+key)
+	_, err := s.etcd.Delete(ctx, s.Prefix()+"/secrets/store/"+key)
 	return err
 }

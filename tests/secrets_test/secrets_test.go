@@ -225,3 +225,71 @@ func TestBootstrapRegistrationTimeout(t *testing.T) {
 	err = store.RegisterAndWaitForClusterKey(ctx)
 	require.Error(t, err) // Should be context.DeadlineExceeded
 }
+
+func TestGenerateClusterKey(t *testing.T) {
+	key, err := secrets.GenerateClusterKey()
+	require.NoError(t, err)
+	require.Len(t, key, 32)
+	// Should be nonzero
+	var zero [32]byte
+	require.NotEqual(t, zero, key)
+}
+
+func TestListPendingRegistrationsAndApproveNode(t *testing.T) {
+	cluster, cleanup := testcluster.SetupEtcdCluster(t)
+	t.Cleanup(cleanup)
+
+	tempDir, cleanup2 := testutil.SetupTempDir(t)
+	t.Cleanup(cleanup2)
+	keyPath := tempDir + "/node_key"
+
+	// Register a new Store (node), which should register itself as pending
+	store, err := secrets.NewStore(cluster.Client(), keyPath, cluster.Prefix())
+	require.NoError(t, err)
+	ctx := context.TODO()
+	// Register node (does not block, for test we just do the put directly)
+	pubKey := store.PublicKey()
+	privKey := store.PrivateKey()
+
+	pubB64 := base64.StdEncoding.EncodeToString(pubKey[:])
+	_, err = cluster.Client().Put(ctx, cluster.Prefix()+"/registration/pending/"+store.NodeId(), pubB64)
+	require.NoError(t, err)
+
+	// Now list pending registrations
+	pending, err := store.ListPendingRegistrations(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, pending)
+	found := false
+	for _, reg := range pending {
+		if reg.NodeID == store.NodeId() && reg.PubKeyB64 == pubB64 {
+			found = true
+		}
+	}
+	require.True(t, found, "pending registration for this node should exist")
+
+	// Generate cluster key and approve node
+	clusterKey, err := secrets.GenerateClusterKey()
+	require.NoError(t, err)
+	require.Len(t, clusterKey, 32)
+	require.NoError(t, store.ApproveNode(ctx, store.NodeId(), clusterKey))
+
+	// Pending registration should be gone
+	pending2, err := store.ListPendingRegistrations(ctx)
+	require.NoError(t, err)
+	for _, reg := range pending2 {
+		require.NotEqual(t, store.NodeId(), reg.NodeID, "pending registration should have been removed")
+	}
+
+	// Should be able to fetch the encrypted key in /secrets/keys/
+	resp, err := cluster.Client().Get(ctx, cluster.Prefix()+"/secrets/keys/"+store.NodeId())
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Kvs)
+
+	// Node should be able to retrieve and decrypt the cluster key (simulate full join)
+	// Simulate RegisterAndWaitForClusterKey (call only the key-read/decrypt logic)
+	sealed, _ := base64.StdEncoding.DecodeString(string(resp.Kvs[0].Value))
+
+	plain, ok := box.OpenAnonymous(nil, sealed, &pubKey, &privKey)
+	require.True(t, ok, "should be able to decrypt cluster key")
+	require.Equal(t, clusterKey[:], plain)
+}

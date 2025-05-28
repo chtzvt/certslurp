@@ -34,6 +34,10 @@ func (s *Store) PublicKey() [32]byte {
 	return s.keys.Public
 }
 
+func (s *Store) PrivateKey() [32]byte {
+	return s.keys.Private
+}
+
 func (s *Store) Client() *clientv3.Client {
 	return s.etcd
 }
