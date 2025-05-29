@@ -111,9 +111,9 @@ func handleGetSecret(w http.ResponseWriter, r *http.Request, cl cluster.Cluster,
 		jsonError(w, http.StatusNotFound, "not found")
 		return
 	}
-	enc := base64.StdEncoding.EncodeToString(resp.Kvs[0].Value)
+
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"value": enc})
+	_ = json.NewEncoder(w).Encode(map[string]string{"value": string(resp.Kvs[0].Value)})
 }
 
 func handlePutSecret(w http.ResponseWriter, r *http.Request, cl cluster.Cluster, key string) {

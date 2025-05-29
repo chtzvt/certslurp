@@ -56,7 +56,9 @@ func secretsGenClusterKeyCmd() *cobra.Command {
 		Use:   "genkey",
 		Short: "Generate a new base64-encoded cluster key",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			keyFile, _ := cmd.Flags().GetString("key-file")
+			if keyFile == "" {
+				return fmt.Errorf("missing required --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
+			}
 
 			rawKey, err := secrets.GenerateClusterKey()
 			if err != nil {
@@ -75,8 +77,6 @@ func secretsGenClusterKeyCmd() *cobra.Command {
 		},
 	}
 
-	genKeyCmd.Flags().String("key-file", "cluster.key", "Base64 cluster key file")
-
 	return genKeyCmd
 }
 
@@ -85,6 +85,10 @@ func secretsApprovalCmd() *cobra.Command {
 		Use:   "approve",
 		Short: "Approve a node for secret store access",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if keyFile == "" {
+				return fmt.Errorf("missing required --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
+			}
+
 			nodeID, _ := cmd.Flags().GetString("node-id")
 
 			client := api.NewClient(apiURL, apiToken)
@@ -94,8 +98,6 @@ func secretsApprovalCmd() *cobra.Command {
 
 	approveCmd.Flags().String("node-id", "", "Node ID to approve")
 	approveCmd.MarkFlagRequired("node-id")
-	approveCmd.Flags().String("key-file", "cluster.key", "Base64 cluster key file")
-	approveCmd.MarkFlagRequired("key-file")
 
 	return approveCmd
 }
@@ -126,11 +128,14 @@ func secretsAddCmd() *cobra.Command {
 		Short: "Add or update a secret (reads value from stdin)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if keyFile == "" {
+				return fmt.Errorf("missing required --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
+			}
+
 			val, err := io.ReadAll(os.Stdin)
 			if err != nil {
 				return err
 			}
-			keyFile, _ := cmd.Flags().GetString("key-file")
 
 			clusterKey, err := loadClusterKey(keyFile)
 			if err != nil {
@@ -149,9 +154,6 @@ func secretsAddCmd() *cobra.Command {
 			return nil
 		},
 	}
-
-	addCmd.Flags().String("key-file", "cluster.key", "Base64 cluster key file")
-	_ = addCmd.MarkFlagRequired("key-file")
 
 	return addCmd
 }
@@ -179,7 +181,9 @@ func secretsGetCmd() *cobra.Command {
 		Short: "Get (decrypted) secret value",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			keyFile, _ := cmd.Flags().GetString("key-file")
+			if keyFile == "" {
+				return fmt.Errorf("missing required --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
+			}
 
 			clusterKey, err := loadClusterKey(keyFile)
 			if err != nil {
@@ -205,9 +209,6 @@ func secretsGetCmd() *cobra.Command {
 			return nil
 		},
 	}
-
-	getCmd.Flags().String("key-file", "cluster.key", "Base64 cluster key file")
-	_ = getCmd.MarkFlagRequired("key-file")
 
 	return getCmd
 }

@@ -11,6 +11,7 @@ import (
 var (
 	apiURL     string
 	apiToken   string
+	keyFile    string
 	outputJSON bool
 	timeout    time.Duration
 )
@@ -29,6 +30,7 @@ func main() {
 
 	root.PersistentFlags().StringVar(&apiURL, "api-url", os.Getenv("CERTSLURP_API_URL"), "API URL (or $CERTSLURP_API_URL)")
 	root.PersistentFlags().StringVar(&apiToken, "api-token", os.Getenv("CERTSLURP_API_TOKEN"), "API token (or $CERTSLURP_API_TOKEN)")
+	root.PersistentFlags().StringVar(&keyFile, "cluster-key-file", os.Getenv("CERTSLURP_CLUSTER_KEY_FILE"), "API token (or $CERTSLURP_CLUSTER_KEY_FILE)")
 	root.PersistentFlags().DurationVar(&timeout, "timeout", 15*time.Second, "API request timeout")
 	root.PersistentFlags().BoolVar(&outputJSON, "json", false, "Output as JSON")
 
