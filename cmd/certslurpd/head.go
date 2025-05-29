@@ -85,14 +85,19 @@ func runHead(cfg *config.ClusterConfig) error {
 }
 
 func approveSelf(cl cluster.Cluster, ctx context.Context, clusterKeyB64 string) error {
-	clusterKey, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(clusterKeyB64)))
+	var clusterKey [32]byte
+
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(clusterKeyB64)))
 	if err != nil {
 		return err
 	}
 
-	if len(clusterKey) != 32 {
-		return fmt.Errorf("invalid cluster key length: got %d, want 32", len(clusterKey))
+	if len(raw) != 32 {
+		return fmt.Errorf("invalid cluster key length: got %d, want 32", len(raw))
 	}
+
+	copy(clusterKey[:], raw)
+	cl.Secrets().SetClusterKey(clusterKey)
 
 	return cl.Secrets().ApproveNode(ctx, cl.Secrets().NodeId())
 }
