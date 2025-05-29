@@ -42,6 +42,21 @@ func (n *Store) Set(ctx context.Context, key string, value []byte) error {
 	return err
 }
 
+// SetSealed stores a pre-encryprted value in etcd
+// under the given key. Overwrites any existing value. Returns an error on failure.
+func (n *Store) SetSealed(ctx context.Context, key string, value []byte) error {
+	b64 := base64.StdEncoding.EncodeToString(value)
+	_, err := n.etcd.Put(ctx, n.Prefix()+"/secrets/store/"+key, b64)
+	return err
+}
+
+// EncryptValue encrypts a given value with a provided cluster key
+func EncryptValue(clusterKey [32]byte, value []byte) []byte {
+	var nonce [24]byte
+	_, _ = rand.Read(nonce[:])
+	return secretbox.Seal(nonce[:], value, &nonce, &clusterKey)
+}
+
 // Get retrieves and decrypts the value associated with the given key.
 // Returns the plaintext or an error if the key is not found or decryption fails.
 func (n *Store) Get(ctx context.Context, key string) ([]byte, error) {

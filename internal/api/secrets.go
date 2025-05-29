@@ -149,7 +149,7 @@ func handlePutSecret(w http.ResponseWriter, r *http.Request, cl cluster.Cluster,
 			return
 		}
 	}
-	if err := cl.Secrets().Set(r.Context(), key, value); err != nil {
+	if err := cl.Secrets().SetSealed(r.Context(), key, value); err != nil {
 		jsonError(w, http.StatusInternalServerError, "set failed: "+err.Error())
 		return
 	}

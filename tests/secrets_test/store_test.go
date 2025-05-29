@@ -40,3 +40,23 @@ func SetupTestStore(t *testing.T) *secrets.Store {
 	store.SetClusterKey(clusterKey)
 	return store
 }
+
+type fakeEtcdClient struct {
+	putErr error
+}
+
+func (f *fakeEtcdClient) Put(ctx context.Context, key, value string, opts ...interface{}) (interface{}, error) {
+	return nil, f.putErr
+}
+
+type testStore struct {
+	etcd   *fakeEtcdClient
+	prefix string
+}
+
+func (s *testStore) Prefix() string { return s.prefix }
+func (s *testStore) SetSealed(ctx context.Context, key string, value []byte) error {
+	b64 := base64.StdEncoding.EncodeToString(value)
+	_, err := s.etcd.Put(ctx, s.Prefix()+"/secrets/store/"+key, b64)
+	return err
+}

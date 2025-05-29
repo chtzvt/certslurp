@@ -124,6 +124,8 @@ func (c *Client) GetSecret(ctx context.Context, key string) ([]byte, error) {
 }
 
 // PutSecret sets a secret. Accepts value as raw bytes; encodes to base64 and sends JSON.
+// The API client (caller) is responsible for encrypting the value with the cluster key
+// prior to submission
 func (c *Client) PutSecret(ctx context.Context, key string, value []byte) error {
 	body := map[string]string{"value": base64.StdEncoding.EncodeToString(value)}
 	b, _ := json.Marshal(body)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -11,8 +12,10 @@ import (
 	"github.com/chtzvt/certslurp/internal/secrets"
 	"github.com/chtzvt/certslurp/internal/testcluster"
 	"github.com/chtzvt/certslurp/internal/testutil"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/nacl/box"
+	"golang.org/x/crypto/nacl/secretbox"
 )
 
 func TestSetAndGet(t *testing.T) {
@@ -260,4 +263,63 @@ func TestListPendingRegistrationsAndApproveNode(t *testing.T) {
 	plain, ok := box.OpenAnonymous(nil, sealed, &pubKey, &privKey)
 	require.True(t, ok, "should be able to decrypt cluster key")
 	require.Equal(t, clusterKey[:], plain)
+}
+
+func TestSetSealed_Success(t *testing.T) {
+	cluster, cleanup := testcluster.SetupEtcdCluster(t)
+	t.Cleanup(cleanup)
+	tempDir, cleanup2 := testutil.SetupTempDir(t)
+	t.Cleanup(cleanup2)
+	keyPath := tempDir + "/node_key"
+
+	store, err := secrets.NewStore(cluster.Client(), keyPath, "/certslurp")
+	require.NoError(t, err)
+
+	key := "foo"
+	val := []byte("topsecret")
+	ctx := context.Background()
+
+	err = store.SetSealed(ctx, key, val)
+	require.NoError(t, err)
+
+	// Verify directly in etcd
+	resp, err := cluster.Client().Get(ctx, "/certslurp/secrets/store/"+key)
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Kvs)
+	got := string(resp.Kvs[0].Value)
+	want := base64.StdEncoding.EncodeToString(val)
+	assert.Equal(t, want, got)
+}
+
+func TestSetSealed_ErrorFromEtcd(t *testing.T) {
+	mock := &fakeEtcdClient{putErr: errors.New("nope")}
+	store := &testStore{etcd: mock, prefix: "p"}
+	err := store.SetSealed(context.Background(), "foo", []byte("bar"))
+	assert.ErrorContains(t, err, "nope")
+}
+
+func TestEncryptValue_DecryptsToOriginal(t *testing.T) {
+	var key [32]byte
+	copy(key[:], []byte("12345678901234567890123456789012"))
+
+	val := []byte("sensitive-data")
+	cipher := secrets.EncryptValue(key, val)
+
+	require.Len(t, cipher, 24+secretbox.Overhead+len(val), "should prepend 24-byte nonce and 16-byte MAC")
+
+	var nonce [24]byte
+	copy(nonce[:], cipher[:24])
+	opened, ok := secretbox.Open(nil, cipher[24:], &nonce, &key)
+	require.True(t, ok, "should decrypt with correct key")
+	assert.Equal(t, val, opened)
+}
+
+func TestEncryptValue_DifferentCiphertexts(t *testing.T) {
+	var key [32]byte
+	copy(key[:], []byte("12345678901234567890123456789012"))
+
+	val := []byte("repeatme")
+	c1 := secrets.EncryptValue(key, val)
+	c2 := secrets.EncryptValue(key, val)
+	assert.NotEqual(t, c1, c2, "nonce should make ciphertexts different each time")
 }
