@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/chtzvt/certslurp/internal/cluster"
 	"github.com/chtzvt/certslurp/internal/secrets"
@@ -97,11 +98,18 @@ func printShardsTable(data any) {
 		fmt.Println("No shards found")
 		return
 	}
+	// Sort shard IDs
+	var ids []int
+	for id := range shards {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{
-		"Shard ID", "Worker ID", "Assigned", "Done", "Failed", "Lease Expiry", "Retries", "Backoff", "Idx From", "Idx To", "OutputPath",
+		"Shard ID", "Worker ID", "Assigned", "Done", "Failed", "Lease Expiry", "Retries", "Backoff", "Idx From", "Idx To",
 	})
-	for id, s := range shards {
+	for _, id := range ids {
+		s := shards[id]
 		table.Append([]string{
 			fmt.Sprintf("%d", id),
 			s.WorkerID,
@@ -113,7 +121,6 @@ func printShardsTable(data any) {
 			valOrDash(s.BackoffUntil),
 			fmt.Sprintf("%d", s.IndexFrom),
 			fmt.Sprintf("%d", s.IndexTo),
-			s.OutputPath,
 		})
 	}
 	table.Render()
@@ -136,7 +143,6 @@ func printShardStatusTable(data any) {
 	table.Append([]string{"Backoff", valOrDash(status.BackoffUntil)})
 	table.Append([]string{"Index From", fmt.Sprintf("%d", status.IndexFrom)})
 	table.Append([]string{"Index To", fmt.Sprintf("%d", status.IndexTo)})
-	table.Append([]string{"OutputPath", status.OutputPath})
 	table.Render()
 }
 

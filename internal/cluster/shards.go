@@ -13,7 +13,7 @@ import (
 
 const (
 	shardLeaseSeconds = 60
-	maxShardRetries   = 3
+	MaxShardRetries   = 3
 	shardRetryBackoff = 30 * time.Second
 )
 
@@ -282,7 +282,7 @@ func (c *etcdCluster) AssignShard(ctx context.Context, jobID string, shardID int
 	if doneExists {
 		return fmt.Errorf("shard %d already completed", shardID)
 	}
-	if retries >= maxShardRetries {
+	if retries >= MaxShardRetries {
 		return fmt.Errorf("shard %d permanently failed (retries exceeded)", shardID)
 	}
 	if !backoffUntil.IsZero() && now.Before(backoffUntil) {
@@ -436,7 +436,7 @@ func (c *etcdCluster) ReportShardFailed(ctx context.Context, jobID string, shard
 		retries, _ = strconv.Atoi(string(resp.Kvs[0].Value))
 	}
 	retries++
-	if retries > maxShardRetries {
+	if retries > MaxShardRetries {
 		// Mark permanently failed
 		man := ShardManifest{
 			DoneAt:  time.Now().UTC(),

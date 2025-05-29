@@ -23,21 +23,16 @@ func httpTransportForShard(cfg job.FetchConfig) (*http.Transport, time.Duration)
 	}
 
 	const (
-		// Base per-request timeout
-		perRequestTimeout time.Duration = 20 * time.Second
-
-		// min/max client timeouts
-		minTimeout time.Duration = 2 * time.Minute
-		maxTimeout time.Duration = 10 * time.Minute
-
-		// min/max idle conns
-		minIdleConns int = 4
-		maxIdleConns int = 100
+		perRequestTimeout        = 20 * time.Second
+		minTimeout               = 2 * time.Minute
+		maxTimeout               = 10 * time.Minute
+		minIdleConns             = 4
+		maxIdleConns             = 100
+		minResponseHeaderTimeout = 20 * time.Second
+		maxResponseHeaderTimeout = 60 * time.Second
 	)
 
 	timeout := time.Duration(reqs) * perRequestTimeout
-
-	// Scale client timeout, clamp
 	if timeout < minTimeout {
 		timeout = minTimeout
 	}
@@ -45,7 +40,6 @@ func httpTransportForShard(cfg job.FetchConfig) (*http.Transport, time.Duration)
 		timeout = maxTimeout
 	}
 
-	// Idle connections: scale with FetchWorkers, clamp
 	idleConns := cfg.FetchWorkers * 2
 	if idleConns < minIdleConns {
 		idleConns = minIdleConns
@@ -54,14 +48,20 @@ func httpTransportForShard(cfg job.FetchConfig) (*http.Transport, time.Duration)
 		idleConns = maxIdleConns
 	}
 
+	// Dynamically set response header timeout based on fetch size.
+	rhTimeout := minResponseHeaderTimeout
+	if cfg.FetchSize > 512 {
+		rhTimeout = maxResponseHeaderTimeout
+	}
+
 	transport := &http.Transport{
 		TLSHandshakeTimeout:   30 * time.Second,
-		ResponseHeaderTimeout: perRequestTimeout,
+		ResponseHeaderTimeout: rhTimeout,
 		MaxIdleConnsPerHost:   idleConns,
 		MaxIdleConns:          idleConns,
 		IdleConnTimeout:       90 * time.Second,
 		DisableKeepAlives:     false,
-		ExpectContinueTimeout: 3 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 
 	return transport, timeout
