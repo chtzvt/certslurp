@@ -242,7 +242,10 @@ func TestListPendingRegistrationsAndApproveNode(t *testing.T) {
 	clusterKey, err := secrets.GenerateClusterKey()
 	require.NoError(t, err)
 	require.Len(t, clusterKey, 32)
-	require.NoError(t, store.ApproveNode(ctx, store.NodeId(), clusterKey))
+
+	store.SetClusterKey(clusterKey)
+
+	require.NoError(t, store.ApproveNode(ctx, store.NodeId()))
 
 	// Pending registration should be gone
 	pending2, err := store.ListPendingRegistrations(ctx)

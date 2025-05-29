@@ -78,24 +78,18 @@ func handleListPendingNodes(w http.ResponseWriter, r *http.Request, cl cluster.C
 
 func handleApproveNode(w http.ResponseWriter, r *http.Request, cl cluster.Cluster) {
 	var req struct {
-		NodeID     string `json:"node_id"`
-		ClusterKey string `json:"cluster_key"` // base64-encoded 32 bytes
+		NodeID string `json:"node_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request: "+err.Error())
 		return
 	}
-	var key [32]byte
-	raw, err := base64.StdEncoding.DecodeString(req.ClusterKey)
-	if err != nil || len(raw) != 32 {
-		jsonError(w, http.StatusBadRequest, "invalid cluster_key (must be base64-encoded 32 bytes)")
-		return
-	}
-	copy(key[:], raw)
-	if err := cl.Secrets().ApproveNode(r.Context(), req.NodeID, key); err != nil {
+
+	if err := cl.Secrets().ApproveNode(r.Context(), req.NodeID); err != nil {
 		jsonError(w, http.StatusBadRequest, "could not approve node: "+err.Error())
 		return
 	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

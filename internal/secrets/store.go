@@ -34,6 +34,10 @@ func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
 // Set encrypts the provided value with the cluster key and stores it in etcd
 // under the given key. Overwrites any existing value. Returns an error on failure.
 func (n *Store) Set(ctx context.Context, key string, value []byte) error {
+	if !n.HasClusterKey() {
+		return errors.New("cluster key not present")
+	}
+
 	var nonce [24]byte
 	_, _ = rand.Read(nonce[:])
 	sealed := secretbox.Seal(nonce[:], value, &nonce, &n.clusterK)
@@ -60,6 +64,10 @@ func EncryptValue(clusterKey [32]byte, value []byte) []byte {
 // Get retrieves and decrypts the value associated with the given key.
 // Returns the plaintext or an error if the key is not found or decryption fails.
 func (n *Store) Get(ctx context.Context, key string) ([]byte, error) {
+	if !n.HasClusterKey() {
+		return nil, errors.New("cluster key not present")
+	}
+
 	resp, err := n.etcd.Get(ctx, n.Prefix()+"/secrets/store/"+key)
 	if err != nil || len(resp.Kvs) == 0 {
 		return nil, errors.New("secret not found")

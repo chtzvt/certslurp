@@ -25,7 +25,11 @@ func GenerateClusterKey() ([32]byte, error) {
 // ApproveNode is used by an administrator to approve a pending node registration.
 // Encrypts the cluster key with the node's public key and stores it in etcd.
 // Removes the pending registration after approval.
-func (n *Store) ApproveNode(ctx context.Context, nodeID string, clusterKey [32]byte) error {
+func (n *Store) ApproveNode(ctx context.Context, nodeID string) error {
+	if !n.HasClusterKey() {
+		return errors.New("cluster key not present")
+	}
+
 	resp, err := n.etcd.Get(ctx, n.Prefix()+"/registration/pending/"+nodeID)
 	if err != nil || len(resp.Kvs) == 0 {
 		return errors.New("pending registration not found")
@@ -37,7 +41,7 @@ func (n *Store) ApproveNode(ctx context.Context, nodeID string, clusterKey [32]b
 	}
 	var pubKey [32]byte
 	copy(pubKey[:], pubBytes)
-	sealed, err := box.SealAnonymous(nil, clusterKey[:], &pubKey, rand.Reader)
+	sealed, err := box.SealAnonymous(nil, n.clusterK[:], &pubKey, rand.Reader)
 	if err != nil {
 		return err
 	}

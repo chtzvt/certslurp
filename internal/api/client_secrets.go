@@ -45,10 +45,9 @@ func (c *Client) ListPendingNodes(ctx context.Context) ([]secrets.PendingRegistr
 }
 
 // ApproveNode approves a worker registration with the provided base64 cluster key.
-func (c *Client) ApproveNode(ctx context.Context, nodeID, clusterKeyBase64 string) error {
+func (c *Client) ApproveNode(ctx context.Context, nodeID string) error {
 	body := map[string]string{
-		"node_id":     nodeID,
-		"cluster_key": clusterKeyBase64,
+		"node_id": nodeID,
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/api/secrets/nodes/approve", bytes.NewReader(b))

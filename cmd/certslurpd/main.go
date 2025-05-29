@@ -125,8 +125,17 @@ func runHead(cfg *config.ClusterConfig) error {
 	defer cl.Close()
 
 	logger := log.New(os.Stdout, "[api] ", log.LstdFlags)
-	logger.Printf("Starting API server on %s\n", cfg.Api.ListenAddr)
 	apiServer := api.NewServer(cl, cfg.Api, logger)
+
+	go func() {
+		logger.Println("Registering head node and waiting for admin to approve secrets...")
+		if err := cl.Secrets().RegisterAndWaitForClusterKey(context.Background()); err != nil {
+			logger.Fatalf("Head node registration failed: %v", err)
+		}
+		logger.Println("Head node registration complete.")
+	}()
+
+	logger.Printf("Starting API server on %s", cfg.Api.ListenAddr)
 	return apiServer.Start(ctx)
 }
 

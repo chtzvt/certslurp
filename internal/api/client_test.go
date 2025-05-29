@@ -81,7 +81,7 @@ func TestClient_ListPendingNodes(t *testing.T) {
 }
 
 func TestClient_ApproveNode(t *testing.T) {
-	// Expect: POST body with node_id and cluster_key
+	// Expect: POST body with node_id
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -91,13 +91,12 @@ func TestClient_ApproveNode(t *testing.T) {
 		var req map[string]string
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 		require.Equal(t, "n123", req["node_id"])
-		require.Equal(t, "deadbeef", req["cluster_key"])
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "testtoken")
-	err := client.ApproveNode(context.Background(), "n123", "deadbeef")
+	err := client.ApproveNode(context.Background(), "n123")
 	require.NoError(t, err)
 	require.True(t, called)
 }

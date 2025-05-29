@@ -38,6 +38,11 @@ func (s *Store) PrivateKey() [32]byte {
 	return s.keys.Private
 }
 
+func (s *Store) HasClusterKey() bool {
+	var zero [32]byte
+	return s.clusterK != zero
+}
+
 func (s *Store) Client() *clientv3.Client {
 	return s.etcd
 }
