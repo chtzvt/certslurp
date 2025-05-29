@@ -101,6 +101,9 @@ func (w *httpSinkWriter) Close() error {
 		if w.sink.compression == "gzip" {
 			req.Header.Set("Content-Encoding", "gzip")
 		}
+		if w.sink.compression == "bzip2" {
+			req.Header.Set("Content-Encoding", "x-bzip2")
+		}
 		resp, err := w.sink.client.Do(req)
 		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			_ = resp.Body.Close()

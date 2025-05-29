@@ -2,6 +2,7 @@ package sink
 
 import (
 	"bytes"
+	"compress/bzip2"
 	"compress/gzip"
 	"context"
 	"io"
@@ -66,6 +67,39 @@ func TestHTTPSink_GzipCompression(t *testing.T) {
 
 	r, err := gzip.NewReader(bytes.NewReader(gotBody))
 	require.NoError(t, err)
+	plain, err := io.ReadAll(r)
+	require.NoError(t, err)
+	require.Equal(t, payload, string(plain))
+}
+
+func TestHTTPSink_Bzip2Compression(t *testing.T) {
+	var gotBody []byte
+	var gotHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("Content-Encoding")
+		b, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		gotBody = b
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	opts := map[string]interface{}{
+		"endpoint":    srv.URL,
+		"compression": "bzip2",
+	}
+	sink, err := NewHTTPSink(opts, nil)
+	require.NoError(t, err)
+	w, err := sink.Open(context.Background(), "bz2")
+	require.NoError(t, err)
+	payload := "compressed payload"
+	_, err = w.Write([]byte(payload))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	require.Equal(t, "x-bzip2", gotHeader)
+
+	r := bzip2.NewReader(bytes.NewReader(gotBody))
+
 	plain, err := io.ReadAll(r)
 	require.NoError(t, err)
 	require.Equal(t, payload, string(plain))
