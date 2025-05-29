@@ -47,15 +47,19 @@ type CertFieldsExtractorOutput struct {
 	StreetAddress      []string  `json:"st,omitempty"`
 	PostalCode         []string  `json:"pc,omitempty"`
 	DNSNames           []string  `json:"dns,omitempty"`
-	IPAddresses        []string  `json:"ip,omitempty"`
+	IPAddresses        []string  `json:"ips,omitempty"`
 	URIs               []string  `json:"uris,omitempty"`
 	Subject            string    `json:"sub,omitempty"`
 	Issuer             string    `json:"iss"`
 	SerialNumber       string    `json:"sn"`
 	NotBefore          time.Time `json:"nbf"`
 	NotAfter           time.Time `json:"naf"`
-	EntryNumber        int64     `json:"li"`
-	Timestamp          int64     `json:"lts"`
+
+	PrecertSubject string `json:"presub"`
+	PrecertIssuer  string `json:"preiss"`
+
+	LogIndex     int64     `json:"li"`
+	LogTimestamp time.Time `json:"lts"`
 }
 
 type CertFieldsExtractor struct {
@@ -112,9 +116,9 @@ var certFuncs = map[string]CertFieldsExtractorCertFunc{
 	},
 	"ip_addresses": func(cert *x509.Certificate) (string, interface{}, error) {
 		if len(cert.IPAddresses) == 0 {
-			return "ip", []string{}, fmt.Errorf("no IP addresses names present")
+			return "ips", []string{}, fmt.Errorf("no IP addresses names present")
 		}
-		return "ip", cert.IPAddresses, nil
+		return "ips", cert.IPAddresses, nil
 	},
 	"uris": func(cert *x509.Certificate) (string, interface{}, error) {
 		if len(cert.URIs) == 0 {

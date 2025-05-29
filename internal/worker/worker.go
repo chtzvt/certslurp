@@ -4,15 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/chtzvt/certslurp/internal/cluster"
-	"github.com/chtzvt/certslurp/internal/etl"
 	"github.com/chtzvt/certslurp/internal/job"
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
@@ -37,6 +34,11 @@ type Worker struct {
 
 	mainLoopErrorCount int64
 	mainLoopBackoff    time.Duration
+}
+
+type ShardRef struct {
+	JobID   string
+	ShardID int
 }
 
 const (
@@ -75,11 +77,9 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 
 	var lastErr error
-	heartbeatTicker := time.NewTicker(5 * time.Second)
-	defer heartbeatTicker.Stop()
 
-	metricsTicker := time.NewTicker(10 * time.Second)
-	defer metricsTicker.Stop()
+	go w.heartbeatLoop(ctx)
+	go w.metricsLoop(ctx)
 
 	sem := make(chan struct{}, w.MaxParallel)
 	for {
@@ -92,10 +92,6 @@ func (w *Worker) Run(ctx context.Context) error {
 			w.Logger.Println("worker: stop requested")
 			w.wg.Wait()
 			return nil
-		case <-heartbeatTicker.C:
-			w.heartbeat(ctx)
-		case <-metricsTicker.C:
-			w.sendMetrics(ctx)
 		default:
 			// --- Main Loop Error Handling ---
 			if lastErr != nil {
@@ -152,164 +148,6 @@ func (w *Worker) Stop() {
 	<-w.stopped
 }
 
-// Heartbeat keeps worker lease alive in etcd.
-func (w *Worker) heartbeat(ctx context.Context) {
-	if err := w.Cluster.HeartbeatWorker(ctx, w.ID); err != nil {
-		w.Logger.Printf("heartbeat failed: %v", err)
-	}
-}
-
-func (w *Worker) sendMetrics(ctx context.Context) {
-	if err := w.Cluster.SendMetrics(ctx, w.ID, w.Metrics); err != nil {
-		w.Logger.Printf("SendMetrics failed: %v", err)
-	}
-}
-
-// Check for job cancellation (set by CancelJob).
-func (w *Worker) checkJobCancelled(ctx context.Context, jobID string) (bool, error) {
-	status, err := w.Cluster.IsJobCancelled(ctx, jobID)
-	if err != nil {
-		return false, err
-	}
-	return status, nil
-}
-
-type ShardRef struct {
-	JobID   string
-	ShardID int
-}
-
-// findAllClaimableShards returns up to batchSize claimable shards across all jobs.
-func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []ShardRef {
-	jobs, err := w.Cluster.ListJobs(ctx)
-	if err != nil {
-		w.Logger.Printf("error listing jobs: %v", err)
-		return nil
-	}
-	now := time.Now()
-	claimable := make([]ShardRef, 0, batchSize)
-	const windowSize = 128
-	const maxEmptyWindows = 8
-
-	randShuffle := func(refs []ShardRef) []ShardRef {
-		rand.Shuffle(len(refs), func(i, j int) {
-			refs[i], refs[j] = refs[j], refs[i]
-		})
-		return refs
-	}
-
-	for _, job := range jobs {
-		shardCount, err := w.Cluster.GetShardCount(ctx, job.ID)
-		if err != nil || shardCount == 0 {
-			continue
-		}
-		emptyWindows := 0
-		checked := map[int]struct{}{}
-		lastWindowScanned := false
-
-		for {
-			// Fallback: scan ALL
-			if shardCount < windowSize || emptyWindows >= maxEmptyWindows {
-				window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, 0, shardCount)
-				if len(claimable) < batchSize {
-					var stuck []int
-					for sID, stat := range window {
-						if !stat.Done && !stat.Failed && !stat.Assigned && (stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
-							stuck = append(stuck, sID)
-						}
-					}
-				}
-				if err != nil {
-					break
-				}
-				for sID, stat := range window {
-					if _, alreadyChecked := checked[sID]; !alreadyChecked && !stat.Assigned && !stat.Done && !stat.Failed &&
-						(stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
-						claimable = append(claimable, ShardRef{JobID: job.ID, ShardID: sID})
-						if len(claimable) >= batchSize {
-							return randShuffle(claimable)
-						}
-					}
-				}
-				break
-			}
-
-			// Standard random window
-			offset := rand.Intn(shardCount - windowSize + 1)
-			window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, offset, offset+windowSize)
-			if err != nil {
-				break
-			}
-			found := false
-			for sID, stat := range window {
-				checked[sID] = struct{}{}
-				if !stat.Assigned && !stat.Done && !stat.Failed &&
-					(stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
-					claimable = append(claimable, ShardRef{JobID: job.ID, ShardID: sID})
-					if len(claimable) >= batchSize {
-						return randShuffle(claimable)
-					}
-					found = true
-				}
-			}
-			if found {
-				break
-			}
-			emptyWindows++
-
-			// Ensure we always explicitly check the final window at least once
-			if !lastWindowScanned && shardCount > windowSize {
-				lastWindowScanned = true
-				offset := shardCount - windowSize
-				window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, offset, shardCount)
-				if err == nil {
-					for sID, stat := range window {
-						checked[sID] = struct{}{}
-						if !stat.Assigned && !stat.Done && !stat.Failed &&
-							(stat.BackoffUntil.IsZero() || now.After(stat.BackoffUntil)) {
-							claimable = append(claimable, ShardRef{JobID: job.ID, ShardID: sID})
-							if len(claimable) >= batchSize {
-								return randShuffle(claimable)
-							}
-							found = true
-						}
-					}
-					if found {
-						break
-					}
-				}
-			}
-		}
-	}
-
-	return randShuffle(claimable)
-}
-
-// tryAssignShardWithRetry tries to assign a shard with retries on race/assignment contention.
-func (w *Worker) tryAssignShardWithRetry(ctx context.Context, jobID string, shardID int) error {
-	var lastErr error
-	for attempt := 1; attempt <= maxAssignShardRetries; attempt++ {
-		err := w.Cluster.AssignShard(ctx, jobID, shardID, w.ID)
-		if err == nil {
-			return nil
-		}
-
-		// Recognize assignment-race or already assigned errors
-		msg := err.Error()
-		if strings.Contains(msg, "assignment race") ||
-			strings.Contains(msg, "already assigned") ||
-			strings.Contains(msg, "in backoff") {
-			backoff := time.Duration(50+rand.Intn(150)) * time.Millisecond
-			time.Sleep(backoff)
-			lastErr = err
-			continue
-		}
-		// Any other error: break and return immediately
-		return err
-	}
-	return fmt.Errorf("failed to assign shard %d (job %s) after %d retries: last error: %v", shardID, jobID, maxAssignShardRetries, lastErr)
-}
-
 // StreamShard streams log entries for the given shard range directly into the provided channel.
 // Closes the channel when done or on error.
 func (w *Worker) StreamShard(ctx context.Context, jobSpec job.JobSpec, from, to int64, ch chan<- *ct.RawLogEntry) error {
@@ -332,18 +170,13 @@ func (w *Worker) StreamShard(ctx context.Context, jobSpec job.JobSpec, from, to 
 		opts.NumWorkers = matchCfg.Workers
 	}
 
+	transport, timeout := httpTransportForShard(fetchCfg)
+
 	logClient, err := client.New(jobSpec.LogURI, &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSHandshakeTimeout:   30 * time.Second,
-			ResponseHeaderTimeout: 30 * time.Second,
-			MaxIdleConnsPerHost:   10,
-			DisableKeepAlives:     false,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		},
-	}, jsonclient.Options{UserAgent: "certslurp/1.0"})
+		Timeout:   timeout,
+		Transport: transport,
+	}, jsonclient.Options{UserAgent: "certslurp/1.0", Logger: w.Logger})
+
 	if err != nil {
 		close(ch)
 		return fmt.Errorf("failed to create log client: %w", err)
@@ -366,83 +199,4 @@ func (w *Worker) StreamShard(ctx context.Context, jobSpec job.JobSpec, from, to 
 	err = s.Scan(ctx, collect, collect)
 	close(ch)
 	return err
-}
-
-func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int) {
-	start := time.Now()
-	var shardReported bool // track if we've reported Done/Failed
-	defer func() {
-		// Recover from panics to avoid leaving shard stuck
-		if r := recover(); r != nil {
-			w.Logger.Printf("panic in shard processing: %v", r)
-			_ = w.Cluster.ReportShardFailed(context.Background(), jobID, shardID)
-			w.Metrics.IncFailed()
-			shardReported = true
-		}
-		// If not reported, mark as failed (covers context cancel or other silent exit)
-		if !shardReported {
-			_ = w.Cluster.ReportShardFailed(context.Background(), jobID, shardID)
-			w.Metrics.IncFailed()
-		}
-		w.Metrics.AddProcessingTime(time.Since(start))
-	}()
-
-	status, err := w.Cluster.GetShardStatus(ctx, jobID, shardID)
-	if err != nil {
-		w.Logger.Printf("get shard status failed: %v", err)
-		return
-	}
-	jobInfo, err := w.Cluster.GetJob(ctx, jobID)
-	if err != nil {
-		w.Logger.Printf("failed to get job spec: %v", err)
-		return
-	}
-
-	cancelled, err := w.checkJobCancelled(ctx, jobID)
-	if err != nil {
-		w.Logger.Printf("job cancelled check failed: %v", err)
-		return
-	}
-	if cancelled {
-		w.Logger.Printf("job %s cancelled, skipping shard %d", jobID, shardID)
-		return
-	}
-
-	pipeline, err := etl.NewPipeline(jobInfo.Spec, w.Cluster.Secrets(), fmt.Sprintf("job-%s-shard-%d", jobID, shardID))
-	if err != nil {
-		w.Logger.Printf("etl pipeline init failed: %v", err)
-		return
-	}
-
-	entries := make(chan *ct.RawLogEntry, 32)
-	etlErrCh := make(chan error, 1)
-	go func() {
-		etlErrCh <- pipeline.StreamProcess(ctx, entries)
-	}()
-	scanErr := w.StreamShard(ctx, *jobInfo.Spec, status.IndexFrom, status.IndexTo, entries)
-	etlErr := <-etlErrCh
-
-	// Check if context was cancelled during work (e.g., test/shutdown/compaction)
-	if ctx.Err() != nil {
-		w.Logger.Printf("context cancelled during shard processing: %v", ctx.Err())
-		return
-	}
-
-	if scanErr != nil {
-		w.Logger.Printf("scanner failed: %v", scanErr)
-		return
-	}
-	if etlErr != nil {
-		w.Logger.Printf("etl process failed: %v", etlErr)
-		return
-	}
-
-	manifest := cluster.ShardManifest{}
-	if err := w.Cluster.ReportShardDone(ctx, jobID, shardID, manifest); err != nil {
-		w.Logger.Printf("report done failed: %v", err)
-		return
-	}
-	w.Metrics.IncProcessed()
-	w.Logger.Printf("shard %d (job %s) completed", shardID, jobID)
-	shardReported = true
 }

@@ -44,8 +44,10 @@ func promptForJobSpec(spec *job.JobSpec) error {
 	spec.Options.Match.Serial = promptString(r, "")
 	fmt.Printf("Match: SCT timestamp [0]: ")
 	spec.Options.Match.SCTTimestamp = uint64(promptInt64(r, 0))
-	fmt.Printf("Match: Domain: ")
-	spec.Options.Match.Domain = promptString(r, "")
+	fmt.Printf("Match: Domain Include: ")
+	spec.Options.Match.DomainInclude = promptString(r, "")
+	fmt.Printf("Match: Domain Exclude: ")
+	spec.Options.Match.DomainExclude = promptString(r, "")
 	fmt.Printf("Match: Parse errors [all/nonfatal]: ")
 	spec.Options.Match.ParseErrors = promptString(r, "")
 	fmt.Printf("Match: Validation errors (y/N): ")
@@ -93,7 +95,8 @@ func jobTemplateCmd() *cobra.Command {
 					Match: job.MatchConfig{
 						SubjectRegex:     "",
 						IssuerRegex:      "",
-						Domain:           "",
+						DomainInclude:    "",
+						DomainExclude:    "",
 						ValidationErrors: false,
 						SkipPrecerts:     false,
 						PrecertsOnly:     false,
@@ -132,7 +135,8 @@ func jobSubmitCmd() *cobra.Command {
 		issuerRegex      string
 		serial           string
 		sctTimestamp     uint64
-		domain           string
+		domainInclude    string
+		domainExclude    string
 		parseErrors      string
 		validationErrors bool
 		skipPrecerts     bool
@@ -199,7 +203,8 @@ To generate a template: certslurpctl job template`,
 				spec.Options.Match.IssuerRegex = issuerRegex
 				spec.Options.Match.Serial = serial
 				spec.Options.Match.SCTTimestamp = sctTimestamp
-				spec.Options.Match.Domain = domain
+				spec.Options.Match.DomainInclude = domainInclude
+				spec.Options.Match.DomainExclude = domainInclude
 				spec.Options.Match.ParseErrors = parseErrors
 				spec.Options.Match.ValidationErrors = validationErrors
 				spec.Options.Match.SkipPrecerts = skipPrecerts
@@ -282,7 +287,8 @@ To generate a template: certslurpctl job template`,
 	cmd.Flags().StringVar(&issuerRegex, "issuer-regex", "", "Issuer regex")
 	cmd.Flags().StringVar(&serial, "serial", "", "Serial number filter")
 	cmd.Flags().Uint64Var(&sctTimestamp, "sct-timestamp", 0, "SCT timestamp")
-	cmd.Flags().StringVar(&domain, "domain", "", "Match DNS name")
+	cmd.Flags().StringVar(&domainInclude, "domain-include", "", "Positive match DNS name")
+	cmd.Flags().StringVar(&domainExclude, "domain-exclude", "", "Negative match DNS name")
 	cmd.Flags().StringVar(&parseErrors, "parse-errors", "", "Parse errors (all/nonfatal)")
 	cmd.Flags().BoolVar(&validationErrors, "validation-errors", false, "Match only certs with validation errors")
 	cmd.Flags().BoolVar(&skipPrecerts, "skip-precerts", false, "Skip precerts")

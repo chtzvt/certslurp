@@ -105,19 +105,19 @@ func TestBuildMatcher_SkipPrecerts_WrapsOther(t *testing.T) {
 }
 
 func TestBuildMatcher_Domain(t *testing.T) {
-	cfg := job.MatchConfig{Domain: `^foo\.example\.com$`}
+	cfg := job.MatchConfig{DomainInclude: `^foo\.example\.com$`}
 	matcher, _ := buildMatcher(cfg)
 	m, ok := matcher.(MatchDomainRegex)
 	if !ok {
 		t.Fatalf("Expected MatchDomainRegex, got %T", matcher)
 	}
-	if !m.DomainRegex.MatchString("foo.example.com") {
+	if !m.Include.MatchString("foo.example.com") {
 		t.Fatal("DomainRegex does not match foo.example.com")
 	}
 }
 
 func TestMatchDomainRegex_CertificateMatches(t *testing.T) {
-	m := MatchDomainRegex{DomainRegex: regexp.MustCompile(`\.example\.com$`)}
+	m := MatchDomainRegex{Include: regexp.MustCompile(`\.example\.com$`)}
 	cert := &x509.Certificate{
 		DNSNames: []string{"foo.example.com", "bar.notme.org"},
 		Subject:  pkix.Name{CommonName: "backup.example.com"},
@@ -146,7 +146,7 @@ func TestMatchDomainRegex_CertificateMatches(t *testing.T) {
 }
 
 func TestMatchDomainRegex_PrecertificateMatches(t *testing.T) {
-	m := MatchDomainRegex{DomainRegex: regexp.MustCompile(`\.example\.com$`)}
+	m := MatchDomainRegex{Include: regexp.MustCompile(`\.example\.com$`)}
 	pre := &ct.Precertificate{
 		TBSCertificate: &x509.Certificate{
 			DNSNames: []string{"foo.example.com", "other.org"},
@@ -175,5 +175,90 @@ func TestMatchDomainRegex_PrecertificateMatches(t *testing.T) {
 	}
 	if m.PrecertificateMatches(preFail) {
 		t.Error("Did not expect PrecertificateMatches to match")
+	}
+}
+
+func TestMatchDomainRegex(t *testing.T) {
+	m := MatchDomainRegex{
+		Include: regexp.MustCompile(`\.example\.com$`),
+		Exclude: regexp.MustCompile(`^foo\.example\.com$`),
+	}
+
+	// Should be excluded: contains a DNS name that matches Exclude, even though bar.example.com would match Include.
+	cert := &x509.Certificate{
+		DNSNames: []string{"foo.example.com", "bar.example.com", "baz.notme.org"},
+		Subject:  pkix.Name{CommonName: "fallback.example.com"},
+	}
+	if m.CertificateMatches(cert) {
+		t.Error("Did not expect CertificateMatches to match when any SAN is excluded")
+	}
+
+	// Should be excluded: only DNS is in both include and exclude
+	certNoMatch := &x509.Certificate{
+		DNSNames: []string{"foo.example.com"},
+	}
+	if m.CertificateMatches(certNoMatch) {
+		t.Error("Did not expect CertificateMatches to match when only DNS is excluded")
+	}
+
+	// Should not match: doesn't match include at all
+	certOther := &x509.Certificate{
+		DNSNames: []string{"otherdomain.org"},
+	}
+	if m.CertificateMatches(certOther) {
+		t.Error("Did not expect CertificateMatches to match when not included")
+	}
+
+	// Should match: included and not excluded
+	certIncluded := &x509.Certificate{
+		DNSNames: []string{"bar.example.com"},
+	}
+	if !m.CertificateMatches(certIncluded) {
+		t.Error("Expected CertificateMatches to match bar.example.com (included, not excluded)")
+	}
+}
+
+func TestBuildMatcher_DomainIncludeExclude(t *testing.T) {
+	cfg := job.MatchConfig{
+		DomainInclude: `\.example\.com$`,
+		DomainExclude: `^foo\.example\.com$`,
+	}
+	matcher, _ := buildMatcher(cfg)
+	m, ok := matcher.(MatchDomainRegex)
+	if !ok {
+		t.Fatalf("Expected MatchDomainRegex, got %T", matcher)
+	}
+	if m.Include == nil || m.Exclude == nil {
+		t.Fatal("Expected both Include and Exclude regex to be set")
+	}
+}
+
+func TestMatchDomainRegex_ExcludeOnly(t *testing.T) {
+	m := MatchDomainRegex{
+		Exclude: regexp.MustCompile(`^bar\.example\.com$`),
+	}
+
+	// Should NOT match: one SAN is excluded ("bar.example.com")
+	cert := &x509.Certificate{
+		DNSNames: []string{"foo.example.com", "bar.example.com"},
+	}
+	if m.CertificateMatches(cert) {
+		t.Error("Did not expect CertificateMatches to match when any SAN is excluded")
+	}
+
+	// Should NOT match: the only SAN is excluded
+	cert2 := &x509.Certificate{
+		DNSNames: []string{"bar.example.com"},
+	}
+	if m.CertificateMatches(cert2) {
+		t.Error("Did not expect CertificateMatches to match bar.example.com")
+	}
+
+	// Should match: no SANs are excluded
+	cert3 := &x509.Certificate{
+		DNSNames: []string{"foo.example.com", "baz.example.com"},
+	}
+	if !m.CertificateMatches(cert3) {
+		t.Error("Expected CertificateMatches to match when no SANs are excluded")
 	}
 }

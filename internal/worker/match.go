@@ -28,34 +28,42 @@ func (s SkipPrecerts) PrecertificateMatches(_ *ct.Precertificate) bool {
 
 // MatchDomainRegex matches DNS names in cert's SANs using a regex
 type MatchDomainRegex struct {
-	DomainRegex *regexp.Regexp
+	Include *regexp.Regexp // Can be nil (means include all)
+	Exclude *regexp.Regexp // Can be nil (means exclude none)
 }
 
-// CertificateMatches returns true if any DNS name matches.
 func (m MatchDomainRegex) CertificateMatches(cert *x509.Certificate) bool {
-	for _, dns := range cert.DNSNames {
-		if m.DomainRegex.MatchString(dns) {
-			return true
+	names := cert.DNSNames
+	if len(names) == 0 {
+		names = []string{cert.Subject.CommonName}
+	}
+	matched := false
+	for _, dns := range names {
+		if m.Exclude != nil && m.Exclude.MatchString(dns) {
+			return false // If any name matches the exclusion, exclude the cert
+		}
+		if m.Include == nil || m.Include.MatchString(dns) {
+			matched = true // At least one name matches include (or include is nil)
 		}
 	}
-	// Slso check CommonName if no SANs present
-	if len(cert.DNSNames) == 0 && m.DomainRegex.MatchString(cert.Subject.CommonName) {
-		return true
-	}
-	return false
+	return matched
 }
 
-// PrecertificateMatches returns true if any DNS name in the Precert matches.
 func (m MatchDomainRegex) PrecertificateMatches(p *ct.Precertificate) bool {
-	for _, dns := range p.TBSCertificate.DNSNames {
-		if m.DomainRegex.MatchString(dns) {
-			return true
+	names := p.TBSCertificate.DNSNames
+	if len(names) == 0 {
+		names = []string{p.TBSCertificate.Subject.CommonName}
+	}
+	matched := false
+	for _, dns := range names {
+		if m.Exclude != nil && m.Exclude.MatchString(dns) {
+			return false // If any name matches the exclusion, exclude the cert
+		}
+		if m.Include == nil || m.Include.MatchString(dns) {
+			matched = true // At least one name matches include (or include is nil)
 		}
 	}
-	if len(p.TBSCertificate.DNSNames) == 0 && m.DomainRegex.MatchString(p.TBSCertificate.Subject.CommonName) {
-		return true
-	}
-	return false
+	return matched
 }
 
 // buildMatcher creates a Matcher (or LeafMatcher) and optional initialization.
@@ -74,10 +82,21 @@ func buildMatcher(cfg job.MatchConfig) (matcher interface{}, initFunc func(conte
 
 	var m scanner.Matcher
 
+	var useDomainMatcher bool
+	if cfg.DomainInclude != "" || cfg.DomainExclude != "" {
+		useDomainMatcher = true
+	}
+
 	switch {
-	case cfg.Domain != "":
-		r := regexp.MustCompile(cfg.Domain)
-		m = MatchDomainRegex{DomainRegex: r}
+	case useDomainMatcher:
+		var inc, exc *regexp.Regexp
+		if cfg.DomainInclude != "" {
+			inc = regexp.MustCompile(cfg.DomainInclude)
+		}
+		if cfg.DomainExclude != "" {
+			exc = regexp.MustCompile(cfg.DomainExclude)
+		}
+		m = MatchDomainRegex{Include: inc, Exclude: exc}
 	case cfg.SubjectRegex != "":
 		r := regexp.MustCompile(cfg.SubjectRegex)
 		m = &scanner.MatchSubjectRegex{

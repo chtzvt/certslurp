@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -41,7 +42,8 @@ type MatchConfig struct {
 	IssuerRegex      string `json:"issuer_regex,omitempty" yaml:"issuer_regex"`
 	Serial           string `json:"serial,omitempty" yaml:"serial"`
 	SCTTimestamp     uint64 `json:"sct_timestamp,omitempty" yaml:"sct_timestamp"`
-	Domain           string `json:"domain,omitempty" yaml:"domain"`
+	DomainInclude    string `json:"domain_include,omitempty" yaml:"domain_include"`
+	DomainExclude    string `json:"domain_exclude,omitempty" yaml:"domain_exclude"`
 	ParseErrors      string `json:"parse_errors,omitempty" yaml:"parse_errors"` // "all" or "nonfatal"
 	ValidationErrors bool   `json:"validation_errors,omitempty" yaml:"validation_errors"`
 	SkipPrecerts     bool   `json:"skip_precerts,omitempty" yaml:"skip_precerts"`
@@ -83,6 +85,7 @@ func Load(r io.Reader) (*JobSpec, error) {
 
 func (j *JobSpec) Validate() error {
 	var missing []string
+	var regexErrs []string
 
 	if j.Version == "" {
 		missing = append(missing, "version")
@@ -106,8 +109,33 @@ func (j *JobSpec) Validate() error {
 		missing = append(missing, "options.output.sink")
 	}
 
+	mc := j.Options.Match
+	if mc.SubjectRegex != "" {
+		if _, err := regexp.Compile(mc.SubjectRegex); err != nil {
+			regexErrs = append(regexErrs, fmt.Sprintf("options.match.subject_regex: %v", err))
+		}
+	}
+	if mc.IssuerRegex != "" {
+		if _, err := regexp.Compile(mc.IssuerRegex); err != nil {
+			regexErrs = append(regexErrs, fmt.Sprintf("options.match.issuer_regex: %v", err))
+		}
+	}
+	if mc.DomainInclude != "" {
+		if _, err := regexp.Compile(mc.DomainInclude); err != nil {
+			regexErrs = append(regexErrs, fmt.Sprintf("options.match.domain_include: %v", err))
+		}
+	}
+	if mc.DomainExclude != "" {
+		if _, err := regexp.Compile(mc.DomainExclude); err != nil {
+			regexErrs = append(regexErrs, fmt.Sprintf("options.match.domain_exclude: %v", err))
+		}
+	}
+
 	if len(missing) > 0 {
 		return fmt.Errorf("missing/invalid job fields: %s", strings.Join(missing, ", "))
+	}
+	if len(regexErrs) > 0 {
+		return fmt.Errorf("invalid regex in job spec:\n  - %s", strings.Join(regexErrs, "\n  - "))
 	}
 	return nil
 }
