@@ -26,6 +26,38 @@ func (s SkipPrecerts) PrecertificateMatches(_ *ct.Precertificate) bool {
 	return false
 }
 
+// MatchDomainRegex matches DNS names in cert's SANs using a regex
+type MatchDomainRegex struct {
+	DomainRegex *regexp.Regexp
+}
+
+// CertificateMatches returns true if any DNS name matches.
+func (m MatchDomainRegex) CertificateMatches(cert *x509.Certificate) bool {
+	for _, dns := range cert.DNSNames {
+		if m.DomainRegex.MatchString(dns) {
+			return true
+		}
+	}
+	// Slso check CommonName if no SANs present
+	if len(cert.DNSNames) == 0 && m.DomainRegex.MatchString(cert.Subject.CommonName) {
+		return true
+	}
+	return false
+}
+
+// PrecertificateMatches returns true if any DNS name in the Precert matches.
+func (m MatchDomainRegex) PrecertificateMatches(p *ct.Precertificate) bool {
+	for _, dns := range p.TBSCertificate.DNSNames {
+		if m.DomainRegex.MatchString(dns) {
+			return true
+		}
+	}
+	if len(p.TBSCertificate.DNSNames) == 0 && m.DomainRegex.MatchString(p.TBSCertificate.Subject.CommonName) {
+		return true
+	}
+	return false
+}
+
 // buildMatcher creates a Matcher (or LeafMatcher) and optional initialization.
 // Returns (matcher, initFunc). initFunc may be nil unless matcher requires it.
 func buildMatcher(cfg job.MatchConfig) (matcher interface{}, initFunc func(context.Context, *client.LogClient) error) {
@@ -43,6 +75,9 @@ func buildMatcher(cfg job.MatchConfig) (matcher interface{}, initFunc func(conte
 	var m scanner.Matcher
 
 	switch {
+	case cfg.Domain != "":
+		r := regexp.MustCompile(cfg.Domain)
+		m = MatchDomainRegex{DomainRegex: r}
 	case cfg.SubjectRegex != "":
 		r := regexp.MustCompile(cfg.SubjectRegex)
 		m = &scanner.MatchSubjectRegex{

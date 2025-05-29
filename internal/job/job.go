@@ -9,55 +9,55 @@ import (
 )
 
 type JobSpec struct {
-	Version string     `json:"version"`
-	Note    string     `json:"note,omitempty"`
-	LogURI  string     `json:"log_uri"`
-	Options JobOptions `json:"options"`
+	Version string     `json:"version" yaml:"version"`
+	Note    string     `json:"note,omitempty" yaml:"note"`
+	LogURI  string     `json:"log_uri" yaml:"log_uri"`
+	Options JobOptions `json:"options" yaml:"options"`
 }
 
 type JobOptions struct {
-	Fetch  FetchConfig   `json:"fetch"`
-	Match  MatchConfig   `json:"match"`
-	Output OutputOptions `json:"output"`
+	Fetch  FetchConfig   `json:"fetch" yaml:"fetch"`
+	Match  MatchConfig   `json:"match" yaml:"match"`
+	Output OutputOptions `json:"output" yaml:"output"`
 }
 
 type FetchConfig struct {
 	// These settings configure the CT scanner brought up by each worker
 	// FetchSize controls the size of the batches of records scanned from the CT log
 	// FetchWorkers controls the parallelism of the scan
-	FetchSize    int `json:"fetch_size"`
-	FetchWorkers int `json:"fetch_workers"`
+	FetchSize    int `json:"fetch_size" yaml:"fetch_size"`
+	FetchWorkers int `json:"fetch_workers" yaml:"fetch_workers"`
 
 	// Optional number of shards to create for the job
-	ShardSize int `json:"shard_size"`
+	ShardSize int `json:"shard_size" yaml:"shard_size"`
 
 	// CT log index range to scan
-	IndexStart int64 `json:"index_start"`
-	IndexEnd   int64 `json:"index_end"` // Non-inclusive; 0 = end of log
+	IndexStart int64 `json:"index_start" yaml:"index_start"`
+	IndexEnd   int64 `json:"index_end" yaml:"index_end"` // Non-inclusive; 0 = end of log
 }
 
 type MatchConfig struct {
-	SubjectRegex     string `json:"subject_regex,omitempty"`
-	IssuerRegex      string `json:"issuer_regex,omitempty"`
-	Serial           string `json:"serial,omitempty"`
-	SCTTimestamp     uint64 `json:"sct_timestamp,omitempty"`
-	Domain           string `json:"domain,omitempty"`
-	ParseErrors      string `json:"parse_errors,omitempty"` // "all" or "nonfatal"
-	ValidationErrors bool   `json:"validation_errors,omitempty"`
-	SkipPrecerts     bool   `json:"skip_precerts,omitempty"`
-	PrecertsOnly     bool   `json:"precerts_only,omitempty"`
-	Workers          int    `json:"workers,omitempty"`
+	SubjectRegex     string `json:"subject_regex,omitempty" yaml:"subject_regex"`
+	IssuerRegex      string `json:"issuer_regex,omitempty" yaml:"issuer_regex"`
+	Serial           string `json:"serial,omitempty" yaml:"serial"`
+	SCTTimestamp     uint64 `json:"sct_timestamp,omitempty" yaml:"sct_timestamp"`
+	Domain           string `json:"domain,omitempty" yaml:"domain"`
+	ParseErrors      string `json:"parse_errors,omitempty" yaml:"parse_errors"` // "all" or "nonfatal"
+	ValidationErrors bool   `json:"validation_errors,omitempty" yaml:"validation_errors"`
+	SkipPrecerts     bool   `json:"skip_precerts,omitempty" yaml:"skip_precerts"`
+	PrecertsOnly     bool   `json:"precerts_only,omitempty" yaml:"precerts_only"`
+	Workers          int    `json:"workers,omitempty" yaml:"workers"`
 }
 
 type OutputOptions struct {
-	ChunkRecords       int                    `json:"chunk_records"`
-	ChunkBytes         int                    `json:"chunk_bytes"`
-	Extractor          string                 `json:"extractor"`
-	ExtractorOptions   map[string]interface{} `json:"extractor_options"`
-	Transformer        string                 `json:"transformer"`
-	TransformerOptions map[string]interface{} `json:"transformer_options"`
-	Sink               string                 `json:"sink"`
-	SinkOptions        map[string]interface{} `json:"sink_options"`
+	ChunkRecords       int                    `json:"chunk_records" yaml:"chunk_records"`
+	ChunkBytes         int                    `json:"chunk_bytes" yaml:"chunk_bytes"`
+	Extractor          string                 `json:"extractor" yaml:"extractor"`
+	ExtractorOptions   map[string]interface{} `json:"extractor_options" yaml:"extractor_options"`
+	Transformer        string                 `json:"transformer" yaml:"transformer"`
+	TransformerOptions map[string]interface{} `json:"transformer_options" yaml:"transformer_options"`
+	Sink               string                 `json:"sink" yaml:"sink"`
+	SinkOptions        map[string]interface{} `json:"sink_options" yaml:"sink_options"`
 }
 
 func LoadFromFile(path string) (*JobSpec, error) {

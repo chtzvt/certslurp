@@ -1,10 +1,14 @@
 package worker
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/chtzvt/certslurp/internal/job"
+	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/scanner"
+	x509 "github.com/google/certificate-transparency-go/x509"
+	"github.com/google/certificate-transparency-go/x509/pkix"
 )
 
 func TestBuildMatcher_SubjectRegex(t *testing.T) {
@@ -97,5 +101,79 @@ func TestBuildMatcher_SkipPrecerts_WrapsOther(t *testing.T) {
 	}
 	if _, ok := s.Inner.(*scanner.MatchSubjectRegex); !ok {
 		t.Fatalf("Expected inner to be MatchSubjectRegex, got %T", s.Inner)
+	}
+}
+
+func TestBuildMatcher_Domain(t *testing.T) {
+	cfg := job.MatchConfig{Domain: `^foo\.example\.com$`}
+	matcher, _ := buildMatcher(cfg)
+	m, ok := matcher.(MatchDomainRegex)
+	if !ok {
+		t.Fatalf("Expected MatchDomainRegex, got %T", matcher)
+	}
+	if !m.DomainRegex.MatchString("foo.example.com") {
+		t.Fatal("DomainRegex does not match foo.example.com")
+	}
+}
+
+func TestMatchDomainRegex_CertificateMatches(t *testing.T) {
+	m := MatchDomainRegex{DomainRegex: regexp.MustCompile(`\.example\.com$`)}
+	cert := &x509.Certificate{
+		DNSNames: []string{"foo.example.com", "bar.notme.org"},
+		Subject:  pkix.Name{CommonName: "backup.example.com"},
+	}
+	if !m.CertificateMatches(cert) {
+		t.Error("Expected CertificateMatches to match on DNSNames")
+	}
+
+	// Should match on CommonName if no SANs present
+	certNoSAN := &x509.Certificate{
+		DNSNames: nil,
+		Subject:  pkix.Name{CommonName: "backup.example.com"},
+	}
+	if !m.CertificateMatches(certNoSAN) {
+		t.Error("Expected CertificateMatches to match on CommonName")
+	}
+
+	// Should not match if neither matches
+	certFail := &x509.Certificate{
+		DNSNames: []string{"something.org"},
+		Subject:  pkix.Name{CommonName: "somethingelse.org"},
+	}
+	if m.CertificateMatches(certFail) {
+		t.Error("Did not expect CertificateMatches to match")
+	}
+}
+
+func TestMatchDomainRegex_PrecertificateMatches(t *testing.T) {
+	m := MatchDomainRegex{DomainRegex: regexp.MustCompile(`\.example\.com$`)}
+	pre := &ct.Precertificate{
+		TBSCertificate: &x509.Certificate{
+			DNSNames: []string{"foo.example.com", "other.org"},
+			Subject:  pkix.Name{CommonName: "cn.example.com"},
+		},
+	}
+	if !m.PrecertificateMatches(pre) {
+		t.Error("Expected PrecertificateMatches to match on DNSNames")
+	}
+
+	preNoSAN := &ct.Precertificate{
+		TBSCertificate: &x509.Certificate{
+			DNSNames: nil,
+			Subject:  pkix.Name{CommonName: "cn.example.com"},
+		},
+	}
+	if !m.PrecertificateMatches(preNoSAN) {
+		t.Error("Expected PrecertificateMatches to match on CommonName")
+	}
+
+	preFail := &ct.Precertificate{
+		TBSCertificate: &x509.Certificate{
+			DNSNames: []string{"other.org"},
+			Subject:  pkix.Name{CommonName: "another.org"},
+		},
+	}
+	if m.PrecertificateMatches(preFail) {
+		t.Error("Did not expect PrecertificateMatches to match")
 	}
 }
