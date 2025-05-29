@@ -33,7 +33,8 @@ func loadClusterKey(path string) ([32]byte, error) {
 
 func secretsPendingCmd() *cobra.Command {
 	pendingCmd := &cobra.Command{
-		Use: "pending",
+		Use:   "pending",
+		Short: "List nodes pending approval",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := api.NewClient(apiURL, apiToken)
 			nodes, err := client.ListPendingNodes(context.Background())
@@ -75,14 +76,14 @@ func secretsGenClusterKeyCmd() *cobra.Command {
 	}
 
 	genKeyCmd.Flags().String("key-file", "cluster.key", "Base64 cluster key file")
-	_ = genKeyCmd.MarkFlagRequired("key-file")
 
 	return genKeyCmd
 }
 
 func secretsApprovalCmd() *cobra.Command {
 	approveCmd := &cobra.Command{
-		Use: "approve",
+		Use:   "approve",
+		Short: "Approve a node for secret store access",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeID, _ := cmd.Flags().GetString("node-id")
 
@@ -92,11 +93,9 @@ func secretsApprovalCmd() *cobra.Command {
 	}
 
 	approveCmd.Flags().String("node-id", "", "Node ID to approve")
-	approveCmd.Flags().String("key-file", "cluster.key", "Base64 cluster key file")
 	approveCmd.MarkFlagRequired("node-id")
-
 	approveCmd.Flags().String("key-file", "cluster.key", "Base64 cluster key file")
-	_ = approveCmd.MarkFlagRequired("key-file")
+	approveCmd.MarkFlagRequired("key-file")
 
 	return approveCmd
 }

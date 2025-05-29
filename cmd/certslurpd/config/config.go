@@ -15,6 +15,7 @@ type EtcdConfig struct {
 
 type SecretsConfig struct {
 	KeychainFile string `mapstructure:"keychain_file"`
+	ClusterKey   string `mapstructure:"cluster_key"`
 }
 
 type ClusterConfig struct {
