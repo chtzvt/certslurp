@@ -1,0 +1,17 @@
+# Build stage
+FROM golang:1.24.3-alpine AS builder
+
+WORKDIR /app
+COPY . .
+RUN go mod tidy
+RUN go build -o certslurpd ./cmd/certslurpd
+
+# Final stage
+FROM alpine:3.22
+
+RUN adduser -D -g '' certslurp
+WORKDIR /home/certslurp
+COPY --from=builder /app/certslurpd /usr/local/bin/certslurpd
+
+USER certslurp
+ENTRYPOINT ["/usr/local/bin/certslurpd"]
