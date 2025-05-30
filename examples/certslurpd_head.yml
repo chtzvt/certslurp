@@ -1,0 +1,15 @@
+node:
+  id: head-node
+
+etcd:
+  endpoints:
+    - "http://127.0.0.1:2379"
+
+api:
+  listen_addr: ":8080"
+  auth_tokens:
+    - slurpsecret
+
+secrets:
+  keychain_file: /tmp/certslurpd/keychain_head
+  cluster_key: "j2vTzRK0U47AoQEY55kLmQ/VkG8GbcRButwYAbmbCbs="
