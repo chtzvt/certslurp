@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,14 +50,45 @@ func (c *etcdCluster) ListWorkers(ctx context.Context) ([]WorkerInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	workers := make([]WorkerInfo, 0, len(resp.Kvs))
+	workers := make(map[string]*WorkerInfo)
 	for _, kv := range resp.Kvs {
+		key := string(kv.Key)
+		rel := key[len(prefix):]
+		if rel == "" || rel == "last_seen" || strings.Contains(rel, "/") {
+			parts := strings.Split(rel, "/")
+			if len(parts) == 2 && parts[1] == "last_seen" {
+				workerID := parts[0]
+				if worker, ok := workers[workerID]; ok {
+					// parse last_seen timestamp
+					t, err := time.Parse(time.RFC3339Nano, string(kv.Value))
+					if err == nil {
+						worker.LastSeen = t
+					}
+				} else {
+					// If we haven't seen the main info yet, create placeholder
+					t, err := time.Parse(time.RFC3339Nano, string(kv.Value))
+					if err == nil {
+						workers[workerID] = &WorkerInfo{
+							ID:       workerID,
+							LastSeen: t,
+						}
+					}
+				}
+			}
+			continue
+		}
+
 		var info WorkerInfo
 		if err := json.Unmarshal(kv.Value, &info); err == nil {
-			workers = append(workers, info)
+			workers[info.ID] = &info
 		}
 	}
-	return workers, nil
+
+	result := make([]WorkerInfo, 0, len(workers))
+	for _, w := range workers {
+		result = append(result, *w)
+	}
+	return result, nil
 }
 
 func (c *etcdCluster) HeartbeatWorker(ctx context.Context, workerID string) error {

@@ -8,7 +8,7 @@ import (
 
 func workerListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "ls",
+		Use:   "list",
 		Short: "List all workers",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()

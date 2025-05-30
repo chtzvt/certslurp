@@ -5,9 +5,20 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/chtzvt/certslurp/internal/cluster"
 )
+
+type WorkerStatus struct {
+	ID               string    `json:"id"`
+	Host             string    `json:"host"`
+	LastSeen         time.Time `json:"last_seen"`
+	ShardsProcessed  int64     `json:"shards_processed"`
+	ShardsFailed     int64     `json:"shards_failed"`
+	ProcessingTimeNs int64     `json:"processing_time_ns"`
+	LastUpdated      time.Time `json:"last_updated"`
+}
 
 func RegisterWorkerHandlers(mux *http.ServeMux, cl cluster.Cluster) {
 	// List all worker metrics
@@ -21,15 +32,25 @@ func RegisterWorkerHandlers(mux *http.ServeMux, cl cluster.Cluster) {
 			jsonError(w, http.StatusInternalServerError, "failed to list workers: "+err.Error())
 			return
 		}
-		views := make([]*cluster.WorkerMetricsView, 0, len(workers))
+		// Combine with metrics
+		statuses := make([]*WorkerStatus, 0, len(workers))
 		for _, wi := range workers {
-			vm, err := cl.GetWorkerMetrics(r.Context(), wi.ID)
-			if err == nil && vm != nil {
-				views = append(views, vm)
+			ws := &WorkerStatus{
+				ID:       wi.ID,
+				Host:     wi.Host,
+				LastSeen: wi.LastSeen,
 			}
+			// Try to get metrics, but tolerate absence
+			if vm, err := cl.GetWorkerMetrics(r.Context(), wi.ID); err == nil && vm != nil {
+				ws.ShardsProcessed = vm.ShardsProcessed
+				ws.ShardsFailed = vm.ShardsFailed
+				ws.ProcessingTimeNs = vm.ProcessingTimeNs
+				ws.LastUpdated = vm.LastUpdated
+			}
+			statuses = append(statuses, ws)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(views)
+		_ = json.NewEncoder(w).Encode(statuses)
 	})
 
 	// Get metrics for specific worker

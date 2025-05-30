@@ -18,6 +18,8 @@ func newCluster(cfg *config.ClusterConfig) (cluster.Cluster, error) {
 		cfg.Node.ID = hostname
 	}
 
+	// Create a unique temporary path, but remove the file so the secrets package
+	// can create and initialize it later.
 	keychainFile := cfg.Secrets.KeychainFile
 	if keychainFile == "" {
 		tmpFile, err := os.CreateTemp("", "certslurpd-keychain-*.bin")
@@ -26,6 +28,8 @@ func newCluster(cfg *config.ClusterConfig) (cluster.Cluster, error) {
 		}
 		keychainFile = tmpFile.Name()
 		tmpFile.Close()
+		// Remove the empty file so the secrets package can safely create it
+		os.Remove(keychainFile)
 	}
 
 	var etcdPrefix string

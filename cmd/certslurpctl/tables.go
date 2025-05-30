@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/chtzvt/certslurp/internal/api"
 	"github.com/chtzvt/certslurp/internal/cluster"
 	"github.com/chtzvt/certslurp/internal/secrets"
 	"github.com/olekukonko/tablewriter"
@@ -57,18 +58,25 @@ func printJobStatusTable(data any) {
 }
 
 func printWorkersTable(data any) {
-	workers, ok := data.([]cluster.WorkerInfo)
+	workers, ok := data.([]api.WorkerStatus)
 	if !ok || len(workers) == 0 {
 		fmt.Println("No workers found")
 		return
 	}
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"ID", "Host", "Last Seen"})
+	table.SetHeader([]string{
+		"ID", "Host", "Last Seen", "Shards Processed", "Shards Failed", "Processing Time (s)", "Last Updated",
+	})
 	for _, w := range workers {
+		procTimeSec := float64(w.ProcessingTimeNs) / 1e9
 		table.Append([]string{
 			w.ID,
 			w.Host,
 			w.LastSeen.Format("2006-01-02 15:04:05"),
+			fmt.Sprintf("%d", w.ShardsProcessed),
+			fmt.Sprintf("%d", w.ShardsFailed),
+			fmt.Sprintf("%.2f", procTimeSec),
+			w.LastUpdated.Format("2006-01-02 15:04:05"),
 		})
 	}
 	table.Render()

@@ -15,15 +15,25 @@ import (
 
 func TestClient_ListWorkers(t *testing.T) {
 	fixed := time.Date(2025, 5, 27, 19, 18, 19, 0, time.UTC)
-	expected := []cluster.WorkerInfo{
-		{ID: "w1", Host: "host1", LastSeen: fixed},
-		{ID: "w2", Host: "host2", LastSeen: fixed},
+	expected := []WorkerStatus{
+		{
+			ID: "w1", Host: "host1", LastSeen: fixed,
+			ShardsProcessed: 12, ShardsFailed: 1,
+			ProcessingTimeNs: 123456789,
+			LastUpdated:      fixed,
+		},
+		{
+			ID: "w2", Host: "host2", LastSeen: fixed,
+			ShardsProcessed: 99, ShardsFailed: 0,
+			ProcessingTimeNs: 6543210,
+			LastUpdated:      fixed,
+		},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer testtoken", r.Header.Get("Authorization"))
 		require.Equal(t, "/api/workers", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(expected)
+		_ = json.NewEncoder(w).Encode(expected)
 	}))
 	defer srv.Close()
 

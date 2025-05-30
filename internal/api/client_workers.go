@@ -8,8 +8,8 @@ import (
 	"github.com/chtzvt/certslurp/internal/cluster"
 )
 
-// ListWorkers returns all registered workers.
-func (c *Client) ListWorkers(ctx context.Context) ([]cluster.WorkerInfo, error) {
+// ListWorkers returns all registered workers and their metrics.
+func (c *Client) ListWorkers(ctx context.Context) ([]WorkerStatus, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/api/workers", nil)
 	if err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func (c *Client) ListWorkers(ctx context.Context) ([]cluster.WorkerInfo, error) 
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAPIError(resp)
 	}
-	var workers []cluster.WorkerInfo
+	var workers []WorkerStatus
 	if err := json.NewDecoder(resp.Body).Decode(&workers); err != nil {
 		return nil, err
 	}

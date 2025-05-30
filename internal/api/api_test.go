@@ -159,10 +159,10 @@ func TestWorkerMetricsEndpoints(t *testing.T) {
 	resp, err := http.Get(srv.URL + "/api/workers")
 	require.NoError(t, err)
 	require.Equal(t, 200, resp.StatusCode)
-	var workers []*cluster.WorkerMetricsView
+	var workers []WorkerStatus
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&workers))
 	require.NotEmpty(t, workers)
-	require.Equal(t, workerID, workers[0].WorkerID)
+	require.Equal(t, workerID, workers[0].ID)
 
 	// GET /api/workers/{id}
 	resp, err = http.Get(srv.URL + "/api/workers/" + workerID)
