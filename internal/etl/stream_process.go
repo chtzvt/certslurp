@@ -69,10 +69,20 @@ func (p *Pipeline) StreamProcess(ctx context.Context, entries <-chan *ct.RawLogE
 		if err != nil {
 			return fmt.Errorf("extract: %w", err)
 		}
+
+		if len(extracted) == 0 || extracted == nil {
+			continue
+		}
+
 		data, err := p.Transformer.Transform(p.Ctx, extracted)
 		if err != nil {
 			return fmt.Errorf("transform: %w", err)
 		}
+
+		if len(data) == 0 || data == nil {
+			continue
+		}
+
 		n, err := writer.Write(data)
 		if err != nil {
 			return fmt.Errorf("write: %w", err)
