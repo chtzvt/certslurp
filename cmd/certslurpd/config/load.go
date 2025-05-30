@@ -1,7 +1,9 @@
 package config
 
 import (
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -48,8 +50,13 @@ func LoadConfig(cfgFile string) (*ClusterConfig, error) {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
 
+	discriminator, err := rand.Int(rand.Reader, big.NewInt(1000))
+	if err != nil {
+		return nil, fmt.Errorf("genrate name: %w", err)
+	}
+
 	if cfg.Node.ID == "" {
-		cfg.Node.ID = namesgenerator.GetRandomName(1)
+		cfg.Node.ID = fmt.Sprintf("%s%03d", namesgenerator.GetRandomName(0), discriminator)
 	}
 
 	return &cfg, nil
