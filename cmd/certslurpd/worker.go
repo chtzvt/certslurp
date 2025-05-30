@@ -29,7 +29,7 @@ func runWorker(cfg *config.ClusterConfig) error {
 	fmt.Printf("Starting worker node: %s\n", cfg.Node.ID)
 	cl, err := newCluster(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to connect to etcd: %w", err)
+		return fmt.Errorf("boot failure: %w", err)
 	}
 	defer cl.Close()
 

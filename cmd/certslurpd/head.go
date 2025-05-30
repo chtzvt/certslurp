@@ -30,7 +30,7 @@ func runHead(cfg *config.ClusterConfig) error {
 
 	cl, err := newCluster(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to connect to etcd: %w", err)
+		return fmt.Errorf("boot failure: %w", err)
 	}
 	defer cl.Close()
 
