@@ -10,7 +10,6 @@ options:
 
   match:
     domain_exclude: "(^|\\.)flowers-to-the-world\\.com$|woodpecker\\.testing\\.letsencrypt\\."
-    skip_precerts: true
 
   output:
     chunk_records: 100

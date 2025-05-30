@@ -22,6 +22,11 @@ func LoadConfig(cfgFile string) (*ClusterConfig, error) {
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "__"))
 
+	viper.SetDefault("node.id", "")
+	viper.SetDefault("etcd.prefix", "/certslurp")
+	viper.SetDefault("api.listen_addr", ":8989")
+	viper.SetDefault("secrets.keychain_file", "")
+
 	viper.BindEnv("node.id")
 	viper.BindEnv("etcd.endpoints")
 	viper.BindEnv("etcd.username")
@@ -33,7 +38,9 @@ func LoadConfig(cfgFile string) (*ClusterConfig, error) {
 	viper.BindEnv("api.auth_tokens")
 
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("read config: %w", err)
+		}
 	}
 
 	var cfg ClusterConfig
