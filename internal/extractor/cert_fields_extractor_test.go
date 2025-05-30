@@ -154,19 +154,6 @@ func TestCertFieldsExtractor_FieldTypes(t *testing.T) {
 	}
 }
 
-func TestCertFieldsExtractor_ExcludesAllIfRequested(t *testing.T) {
-	raw := testutil.RawLogEntryForTestCert(t, 0)
-	ex := &CertFieldsExtractor{
-		Options: CertFieldsExtractorOptions{
-			CertFields: "!common_name,!organization,!email_addresses,!organizational_unit,!locality,!province,!country,!street_address,!postal_code,!dns_names,!ip_addresses,!uris,!subject,!issuer,!serial,!not_before,!not_after",
-		},
-	}
-	ctx := &etl_core.Context{}
-	got, err := ex.Extract(ctx, raw)
-	require.NoError(t, err)
-	require.Empty(t, got)
-}
-
 func TestCertFieldsExtractor_HandlesNilOptions(t *testing.T) {
 	raw := testutil.RawLogEntryForTestCert(t, 0)
 	ex := &CertFieldsExtractor{}
@@ -186,4 +173,97 @@ func TestCertFieldsExtractor_HandlesNilOptions(t *testing.T) {
 	// Should not panic or error
 	_, err := ex.Extract(ctx, raw)
 	require.NoError(t, err)
+}
+
+func TestCertFieldsExtractor_Precert_AllFields(t *testing.T) {
+	raw := testutil.RawLogEntryForTestPrecert(t, 0)
+	ex := &CertFieldsExtractor{
+		Options: CertFieldsExtractorOptions{
+			PrecertFields: "*",
+		},
+	}
+	ctx := &etl_core.Context{}
+	got, err := ex.Extract(ctx, raw)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
+	require.Equal(t, "precert", got["t"])
+	require.Contains(t, got, "co")
+	require.Contains(t, got, "loc")
+	require.Contains(t, got, "naf")
+	require.Contains(t, got, "prv")
+	require.Contains(t, got, "sn")
+	require.Contains(t, got, "sub")
+	require.Contains(t, got, "org")
+	require.Contains(t, got, "iss")
+	require.Contains(t, got, "nbf")
+}
+
+func TestCertFieldsExtractor_Precert_SpecificFields(t *testing.T) {
+	raw := testutil.RawLogEntryForTestPrecert(t, 0)
+	ex := &CertFieldsExtractor{
+		Options: CertFieldsExtractorOptions{
+			PrecertFields: "locality,organization",
+		},
+	}
+	ctx := &etl_core.Context{}
+	got, err := ex.Extract(ctx, raw)
+	require.NoError(t, err)
+	require.Contains(t, got, "loc")
+	require.Contains(t, got, "org")
+}
+
+func TestCertFieldsExtractor_Precert_Exclusion(t *testing.T) {
+	raw := testutil.RawLogEntryForTestPrecert(t, 0)
+	ex := &CertFieldsExtractor{
+		Options: CertFieldsExtractorOptions{
+			PrecertFields: "*,!organizational_unit,!country",
+		},
+	}
+	ctx := &etl_core.Context{}
+	got, err := ex.Extract(ctx, raw)
+	require.NoError(t, err)
+	require.NotContains(t, got, "ou")
+	require.NotContains(t, got, "co")
+	require.Contains(t, got, "org")
+}
+
+func TestCertFieldsExtractor_Precert_InheritsCertFields(t *testing.T) {
+	raw := testutil.RawLogEntryForTestPrecert(t, 0)
+	ex := &CertFieldsExtractor{
+		Options: CertFieldsExtractorOptions{
+			CertFields: "locality,organization",
+		},
+	}
+	ctx := &etl_core.Context{}
+	got, err := ex.Extract(ctx, raw)
+	require.NoError(t, err)
+	require.Contains(t, got, "loc")
+	require.Contains(t, got, "org")
+}
+
+func TestCertFieldsExtractor_Precert_EmptyOption(t *testing.T) {
+	raw := testutil.RawLogEntryForTestPrecert(t, 0)
+	ex := &CertFieldsExtractor{
+		Options: CertFieldsExtractorOptions{
+			PrecertFields: "",
+		},
+	}
+
+	ctx := &etl_core.Context{
+		Spec: &job.JobSpec{
+			Options: job.JobOptions{
+				Output: job.OutputOptions{
+					ExtractorOptions: map[string]interface{}{
+						"precert_fields": "",
+					},
+				},
+			},
+		},
+	}
+
+	got, err := ex.Extract(ctx, raw)
+	require.NoError(t, err)
+	require.NotContains(t, "t", got)
+	require.Len(t, got, 0)
 }

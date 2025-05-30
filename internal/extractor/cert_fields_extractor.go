@@ -37,6 +37,8 @@ It can be configured in a JobSpec via the following options:
 
 // CertFieldsExtractor's output can be unmarshaled into this type
 type CertFieldsExtractorOutput struct {
+	Type string `json:"t,omitempty"`
+
 	CommonName         string    `json:"cn,omitempty"`
 	EmailAddresses     []string  `json:"em,omitempty"`
 	OrganizationalUnit []string  `json:"ou,omitempty"`
@@ -54,9 +56,6 @@ type CertFieldsExtractorOutput struct {
 	SerialNumber       string    `json:"sn"`
 	NotBefore          time.Time `json:"nbf"`
 	NotAfter           time.Time `json:"naf"`
-
-	PrecertSubject string `json:"presub"`
-	PrecertIssuer  string `json:"preiss"`
 
 	LogIndex     int64     `json:"li"`
 	LogTimestamp time.Time `json:"lts"`
@@ -145,13 +144,66 @@ var certFuncs = map[string]CertFieldsExtractorCertFunc{
 
 type CertFieldsExtractorPrecertFunc func(cert *ct.Precertificate) (string, interface{}, error)
 
-// TODO: Add more of these to provide the same level of coverage as certs
 var precertFuncs = map[string]CertFieldsExtractorPrecertFunc{
+	"common_name": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "cn", cert.TBSCertificate.Subject.CommonName, nil
+	},
+	"email_addresses": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "em", cert.TBSCertificate.EmailAddresses, nil
+	},
+	"organizational_unit": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "ou", cert.TBSCertificate.Subject.OrganizationalUnit, nil
+	},
+	"organization": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "org", cert.TBSCertificate.Subject.Organization, nil
+	},
+	"locality": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "loc", cert.TBSCertificate.Subject.Locality, nil
+	},
+	"province": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "prv", cert.TBSCertificate.Subject.Province, nil
+	},
+	"country": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "co", cert.TBSCertificate.Subject.Country, nil
+	},
+	"street_address": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "st", cert.TBSCertificate.Subject.StreetAddress, nil
+	},
+	"postal_code": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "pc", cert.TBSCertificate.Subject.PostalCode, nil
+	},
+	"dns_names": func(cert *ct.Precertificate) (string, interface{}, error) {
+		if len(cert.TBSCertificate.DNSNames) == 0 {
+			return "dns", []string{}, fmt.Errorf("no DNS names present")
+		}
+		return "dns", cert.TBSCertificate.DNSNames, nil
+	},
+	"ip_addresses": func(cert *ct.Precertificate) (string, interface{}, error) {
+		if len(cert.TBSCertificate.IPAddresses) == 0 {
+			return "ips", []string{}, fmt.Errorf("no IP addresses names present")
+		}
+		return "ips", cert.TBSCertificate.IPAddresses, nil
+	},
+	"uris": func(cert *ct.Precertificate) (string, interface{}, error) {
+		if len(cert.TBSCertificate.URIs) == 0 {
+			return "uris", []string{}, fmt.Errorf("no URIs present")
+		}
+		return "uris", cert.TBSCertificate.URIs, nil
+	},
 	"subject": func(cert *ct.Precertificate) (string, interface{}, error) {
-		return "presub", cert.TBSCertificate.Subject.String(), nil
+		return "sub", cert.TBSCertificate.Subject.String(), nil
 	},
 	"issuer": func(cert *ct.Precertificate) (string, interface{}, error) {
-		return "preiss", cert.TBSCertificate.Issuer.String(), nil
+		return "iss", cert.TBSCertificate.Issuer.String(), nil
+	},
+	"serial": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "sn", cert.TBSCertificate.SerialNumber.String(), nil
+	},
+	"not_before": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "nbf", cert.TBSCertificate.NotBefore, nil
+	},
+	"not_after": func(cert *ct.Precertificate) (string, interface{}, error) {
+		return "naf", cert.TBSCertificate.NotAfter, nil
 	},
 }
 
@@ -178,6 +230,10 @@ func (e *CertFieldsExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry
 		e.Options = parseOptions(ctx.Spec.Options.Output.ExtractorOptions)
 	}
 
+	if e.Options.PrecertFields == "" && e.Options.CertFields != "" {
+		e.Options.PrecertFields = e.Options.CertFields
+	}
+
 	// Collect all known field keys for each type
 	var certKeys, precertKeys, logKeys []string
 	for k := range certFuncs {
@@ -200,7 +256,8 @@ func (e *CertFieldsExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry
 		return nil, err
 	}
 
-	if parsed.X509Cert != nil {
+	if parsed.X509Cert != nil && len(certFields) > 0 {
+		result["t"] = "cert"
 		for key, use := range certFields {
 			if !use {
 				continue
@@ -212,7 +269,8 @@ func (e *CertFieldsExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry
 				}
 			}
 		}
-	} else if parsed.Precert != nil {
+	} else if parsed.Precert != nil && len(precertFields) > 0 {
+		result["t"] = "precert"
 		for key, use := range precertFields {
 			if !use {
 				continue
@@ -288,7 +346,11 @@ func parseOptions(opts map[string]interface{}) CertFieldsExtractorOptions {
 	}
 
 	if len(o.PrecertFields) == 0 {
-		o.PrecertFields = CertFieldsExtractorDefaultPreCertFields
+		if len(o.CertFields) != 0 {
+			o.PrecertFields = o.CertFields
+		} else {
+			o.PrecertFields = CertFieldsExtractorDefaultPreCertFields
+		}
 	}
 
 	if len(o.LogFields) == 0 {
