@@ -7,9 +7,11 @@ options:
     fetch_workers: 4
     index_start: 101000000
     index_end: 103000000
+
   match:
     domain_exclude: "(^|\\.)flowers-to-the-world\\.com$|woodpecker\\.testing\\.letsencrypt\\."
     skip_precerts: true
+
   output:
     chunk_records: 100
 
