@@ -27,7 +27,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "slurpload",
-		Short: "Certificate Transparency log ingester for PostgreSQL",
+		Short: "certslurp ingester for PostgreSQL",
 	}
 
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to DB config JSON (required)")
@@ -130,7 +130,6 @@ func main() {
 	var pollInterval time.Duration
 	var filePatterns string
 	var enableWatcher bool
-	var enableHTTP bool
 
 	serveCmd := &cobra.Command{
 		Use:   "serve",
@@ -178,7 +177,7 @@ func main() {
 				go StartInboxWatcher(watcherCfg, jobs, stop)
 				log.Printf("Inbox watcher started on %s", inboxDir)
 			}
-			if enableHTTP && httpAddr != "" && inboxDir != "" {
+			if httpAddr != "" && inboxDir != "" {
 				go StartHTTPServer(httpAddr, inboxDir, jobs)
 				log.Printf("HTTP server started at %s, uploads go to %s", httpAddr, inboxDir)
 			}
@@ -203,7 +202,6 @@ func main() {
 	serveCmd.Flags().DurationVar(&pollInterval, "poll", 2*time.Second, "Inbox watcher poll interval")
 	serveCmd.Flags().StringVar(&filePatterns, "patterns", "*.jsonl,*.jsonl.gz,*.jsonl.bz2", "Comma-separated file patterns for inbox watcher")
 	serveCmd.Flags().BoolVar(&enableWatcher, "watch-inbox", false, "Enable inbox directory watcher")
-	serveCmd.Flags().BoolVar(&enableHTTP, "enable-http", false, "Enable HTTP upload endpoint")
 
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(loadCmd)
