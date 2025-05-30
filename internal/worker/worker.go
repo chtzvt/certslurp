@@ -104,7 +104,7 @@ func (w *Worker) Run(ctx context.Context) error {
 						}
 					}
 					w.Logger.Printf("worker: backing off for %s due to repeated errors", w.mainLoopBackoff)
-					time.Sleep(w.mainLoopBackoff)
+					time.Sleep(jitterDuration() + w.mainLoopBackoff)
 				}
 			} else {
 				w.mainLoopErrorCount = 0
@@ -115,7 +115,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			claimable := w.findAllClaimableShards(ctx, w.BatchSize)
 			lastErr = nil
 			if len(claimable) == 0 {
-				time.Sleep(w.PollPeriod)
+				time.Sleep(jitterDuration() + w.PollPeriod)
 				continue
 			}
 			for _, ref := range claimable {
@@ -133,7 +133,7 @@ func (w *Worker) Run(ctx context.Context) error {
 				}(ref.JobID, ref.ShardID)
 			}
 			// Only wait poll period after all launches, to avoid hammering etcd
-			time.Sleep(w.PollPeriod)
+			time.Sleep(jitterDuration() + w.PollPeriod)
 		}
 	}
 }

@@ -74,6 +74,10 @@ func requireUnauthorized(t *testing.T, method, url string, handler http.Handler)
 
 func setupSecretsTestServer(t *testing.T) (*httptest.Server, cluster.Cluster) {
 	cl, cleanup := testcluster.SetupEtcdCluster(t)
+
+	clusterKey, _ := secrets.GenerateClusterKey()
+	cl.Secrets().SetClusterKey(clusterKey)
+
 	t.Cleanup(cleanup)
 	mux := http.NewServeMux()
 	RegisterSecretHandlers(mux, cl)
@@ -127,6 +131,10 @@ func (s *stubCluster) SendMetrics(ctx context.Context, workerID string, metrics 
 
 func (s *stubCluster) GetWorkerMetrics(ctx context.Context, workerID string) (*cluster.WorkerMetricsView, error) {
 	return &cluster.WorkerMetricsView{}, nil
+}
+
+func (s *stubCluster) RenewShardLease(ctx context.Context, jobID string, shardID int, workerID string) error {
+	return nil
 }
 
 func (s *stubCluster) ShardKey(string, int) string { return "" }

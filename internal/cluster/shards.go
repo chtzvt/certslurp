@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	shardLeaseSeconds = 60
-	MaxShardRetries   = 3
-	shardRetryBackoff = 30 * time.Second
+	shardLeaseDuration = 10 * time.Minute
+	MaxShardRetries    = 3
+	shardRetryBackoff  = 30 * time.Second
 )
 
 type ShardAssignment struct {
@@ -252,7 +252,7 @@ func (c *etcdCluster) AssignShard(ctx context.Context, jobID string, shardID int
 	backoffKey := shardPrefix + "/backoff_until"
 
 	now := time.Now().UTC()
-	leaseExpiry := now.Add(shardLeaseSeconds * time.Second)
+	leaseExpiry := now.Add(shardLeaseDuration)
 
 	// Get all relevant keys in one go (reduces round trips)
 	getOps := []clientv3.Op{
@@ -495,6 +495,39 @@ func (c *etcdCluster) ReportShardDone(ctx context.Context, jobID string, shardID
 	}
 	if !txnResp.Succeeded {
 		return fmt.Errorf("shard %d already marked done", shardID)
+	}
+	return nil
+}
+
+func (c *etcdCluster) RenewShardLease(ctx context.Context, jobID string, shardID int, workerID string) error {
+	shardPrefix := c.ShardKey(jobID, shardID)
+	assignmentKey := shardPrefix + "/assignment"
+
+	now := time.Now().UTC()
+	leaseExpiry := now.Add(shardLeaseDuration)
+	resp, err := c.client.Get(ctx, assignmentKey)
+	if err != nil || len(resp.Kvs) == 0 {
+		return fmt.Errorf("assignment not found for shard %d", shardID)
+	}
+
+	var assign ShardAssignment
+	if err := json.Unmarshal(resp.Kvs[0].Value, &assign); err != nil {
+		return err
+	}
+	// Only allow the assigned worker to renew
+	if assign.WorkerID != workerID {
+		return fmt.Errorf("worker %s does not own shard %d", workerID, shardID)
+	}
+
+	assign.LeaseExpiry = leaseExpiry
+	data, _ := json.Marshal(assign)
+
+	// CAS to prevent overwriting a re-assigned lease
+	cmp := clientv3.Compare(clientv3.Value(assignmentKey), "=", string(resp.Kvs[0].Value))
+	txn := c.client.Txn(ctx).If(cmp).Then(clientv3.OpPut(assignmentKey, string(data)))
+	txnResp, err := txn.Commit()
+	if err != nil || !txnResp.Succeeded {
+		return fmt.Errorf("failed to CAS-extend lease for shard %d", shardID)
 	}
 	return nil
 }

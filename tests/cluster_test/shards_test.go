@@ -289,3 +289,47 @@ func TestGetShardAssignmentsWindow_EmptyOnOutOfBounds(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, window, 0)
 }
+
+func TestRenewShardLease(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	jobID := "renewleasejob"
+
+	// Create a shard and assign it to a worker
+	shards := []cluster.ShardRange{{ShardID: 0, IndexFrom: 0, IndexTo: 100}}
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, shards))
+	workerID := "worker123"
+	require.NoError(t, cl.AssignShard(ctx, jobID, 0, workerID))
+
+	// Fetch initial assignment & lease expiry
+	stat, err := cl.GetShardStatus(ctx, jobID, 0)
+	require.NoError(t, err)
+	require.True(t, stat.Assigned)
+	oldExpiry := stat.LeaseExpiry
+
+	// Wait a small amount of time to guarantee lease changes
+	time.Sleep(10 * time.Millisecond)
+
+	// Renew lease as correct worker
+	require.NoError(t, cl.RenewShardLease(ctx, jobID, 0, workerID))
+	stat2, err := cl.GetShardStatus(ctx, jobID, 0)
+	require.NoError(t, err)
+	require.True(t, stat2.Assigned)
+	require.Equal(t, workerID, stat2.WorkerID)
+	require.True(t, stat2.LeaseExpiry.After(oldExpiry), "Lease expiry should increase after renewal")
+
+	// Try to renew lease as wrong worker
+	err = cl.RenewShardLease(ctx, jobID, 0, "badworker")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not own shard", "should not allow non-owner to renew")
+
+	// Unassign the shard manually, then try to renew (should fail)
+	// Simulate unassigned by deleting assignment
+	assignKey := cl.ShardKey(jobID, 0) + "/assignment"
+	_, err = cl.Client().Delete(ctx, assignKey)
+	require.NoError(t, err)
+	err = cl.RenewShardLease(ctx, jobID, 0, workerID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "assignment not found", "should fail to renew if not assigned")
+}

@@ -34,6 +34,7 @@ type Cluster interface {
 	GetShardAssignments(ctx context.Context, jobID string) (map[int]ShardAssignmentStatus, error)
 	GetShardAssignmentsWindow(ctx context.Context, jobID string, start, end int) (map[int]ShardAssignmentStatus, error)
 	GetShardStatus(ctx context.Context, jobID string, shardID int) (ShardStatus, error)
+	RenewShardLease(ctx context.Context, jobID string, shardID int, workerID string) error
 	ReportShardDone(ctx context.Context, jobID string, shardID int, manifest ShardManifest) error
 	ReportShardFailed(ctx context.Context, jobID string, shardID int) error
 	RequestShardSplit(ctx context.Context, jobID string, shardID int, newRanges []ShardRange) error

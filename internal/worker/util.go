@@ -12,6 +12,13 @@ import (
 	"github.com/chtzvt/certslurp/internal/job"
 )
 
+func jitterDuration() time.Duration {
+	min := 100 * time.Millisecond
+	max := 2 * time.Second
+
+	return min + time.Duration(rand.Int63n(int64(max-min)))
+}
+
 func httpTransportForShard(cfg job.FetchConfig) (*http.Transport, time.Duration) {
 	entries := cfg.IndexEnd - cfg.IndexStart
 	if entries < 0 {
@@ -68,7 +75,7 @@ func httpTransportForShard(cfg job.FetchConfig) (*http.Transport, time.Duration)
 }
 
 func (w *Worker) heartbeatLoop(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(jitterDuration() + 5*time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -85,7 +92,7 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 }
 
 func (w *Worker) metricsLoop(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(jitterDuration() + 10*time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -230,7 +237,7 @@ func (w *Worker) tryAssignShardWithRetry(ctx context.Context, jobID string, shar
 		if strings.Contains(msg, "assignment race") ||
 			strings.Contains(msg, "already assigned") ||
 			strings.Contains(msg, "in backoff") {
-			backoff := time.Duration(50+rand.Intn(150)) * time.Millisecond
+			backoff := jitterDuration() + time.Duration(50+rand.Intn(150))*time.Millisecond
 			time.Sleep(backoff)
 			lastErr = err
 			continue

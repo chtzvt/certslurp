@@ -56,6 +56,27 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 		return
 	}
 
+	ticker := time.NewTicker(jitterDuration() + time.Duration(w.LeaseSecs)*time.Second/2)
+	leaseRenewal := make(chan struct{})
+	defer close(leaseRenewal)
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				err := w.Cluster.RenewShardLease(ctx, jobID, shardID, w.ID)
+				if err != nil {
+					w.Logger.Printf("failed to renew lease for shard %d: %v", shardID, err)
+				}
+			case <-leaseRenewal:
+				ticker.Stop()
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	entries := make(chan *ct.RawLogEntry, 32)
 	etlErrCh := make(chan error, 1)
 	go func() {
