@@ -22,6 +22,16 @@ func LoadConfig(cfgFile string) (*ClusterConfig, error) {
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "__"))
 
+	viper.BindEnv("node.id")
+	viper.BindEnv("etcd.endpoints")
+	viper.BindEnv("etcd.username")
+	viper.BindEnv("etcd.password")
+	viper.BindEnv("etcd.prefix")
+	viper.BindEnv("secrets.keychain_file")
+	viper.BindEnv("secrets.cluster_key")
+	viper.BindEnv("api.listen_addr")
+	viper.BindEnv("api.auth_tokens")
+
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
@@ -32,7 +42,7 @@ func LoadConfig(cfgFile string) (*ClusterConfig, error) {
 	}
 
 	if cfg.Node.ID == "" {
-		cfg.Node.ID = namesgenerator.GetRandomName(3)
+		cfg.Node.ID = namesgenerator.GetRandomName(1)
 	}
 
 	return &cfg, nil

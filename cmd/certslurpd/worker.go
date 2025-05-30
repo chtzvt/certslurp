@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
@@ -25,6 +24,8 @@ var workerCmd = &cobra.Command{
 
 // Worker node: connect to etcd, launch worker main loop
 func runWorker(cfg *config.ClusterConfig) error {
+	ctx := cmdContext()
+
 	fmt.Printf("Starting worker node: %s\n", cfg.Node.ID)
 	cl, err := newCluster(cfg)
 	if err != nil {
@@ -34,11 +35,16 @@ func runWorker(cfg *config.ClusterConfig) error {
 
 	logger := log.New(os.Stdout, "[worker] ", log.LstdFlags)
 
-	logger.Println("Registering worker and waiting for admin to approve secrets...")
-
-	cl.Secrets().RegisterAndWaitForClusterKey(context.TODO())
-
-	logger.Println("Registration complete. Starting...")
+	if cfg.Secrets.ClusterKey != "" {
+		err = selfBootstrap(ctx, cl, cfg, logger)
+		if err != nil {
+			return err
+		}
+	} else {
+		logger.Println("Registering worker and waiting for admin to approve secrets...")
+		cl.Secrets().RegisterAndWaitForClusterKey(ctx)
+		logger.Println("Registration complete. Starting...")
+	}
 
 	w := worker.NewWorker(cl, cfg.Node.ID, logger)
 	return w.Run(cmdContext())
