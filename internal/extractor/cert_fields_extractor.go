@@ -145,6 +145,7 @@ var certFuncs = map[string]CertFieldsExtractorCertFunc{
 
 type CertFieldsExtractorPrecertFunc func(cert *ct.Precertificate) (string, interface{}, error)
 
+// TODO: Add more of these to provide the same level of coverage as certs
 var precertFuncs = map[string]CertFieldsExtractorPrecertFunc{
 	"subject": func(cert *ct.Precertificate) (string, interface{}, error) {
 		return "presub", cert.TBSCertificate.Subject.String(), nil
