@@ -48,12 +48,6 @@ Now just run your tests as usual:
 Note: Adjust the port if 5433 is taken, but make sure it matches in your DSN.
 */
 
-func TestMain(m *testing.M) {
-	// Patch file lock check so watcher never skips files during tests
-	isFileLocked = func(string) bool { return false }
-	os.Exit(m.Run())
-}
-
 func setupTestDB(t *testing.T) *sql.DB {
 	dsn := os.Getenv("TEST_DATABASE_DSN")
 	if dsn == "" {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -68,11 +67,6 @@ func StartInboxWatcher(cfg *WatcherConfig, jobs chan<- InsertJob, stop <-chan st
 				if cfg.HasSeen(file) {
 					continue
 				}
-				// skip files that are being written to (check mtime/size twice)
-				if isFileLocked(file) {
-					log.Printf("File %s appears locked/busy, will retry later", file)
-					continue
-				}
 
 				log.Printf("Watcher: queueing file %s for loading", file)
 				jobs <- InsertJob{Name: filepath.Base(file), Path: file}
@@ -96,18 +90,4 @@ func listMatchingFiles(dir string, patterns []string) ([]string, error) {
 		result = append(result, files...)
 	}
 	return result, nil
-}
-
-// Utility: Check if file is likely still being written (basic check: unchanged for 2 sec)
-var isFileLocked = func(path string) bool {
-	fi1, err := os.Stat(path)
-	if err != nil {
-		return true
-	}
-	time.Sleep(2 * time.Second)
-	fi2, err := os.Stat(path)
-	if err != nil {
-		return true
-	}
-	return fi1.Size() != fi2.Size() || fi1.ModTime() != fi2.ModTime()
 }
