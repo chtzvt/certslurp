@@ -13,8 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/chtzvt/certslurp/internal/extractor"
 	"github.com/dsnet/compress/bzip2"
@@ -27,20 +25,18 @@ func fileWorker(
 	batchSize int,
 	wg *sync.WaitGroup,
 	logStatEvery int64,
-	errorCount *int64,
-	processedRecords *int64,
-	startTime time.Time,
+	metrics *SlurploadMetrics,
 	doneDir string,
 	watcherCfg *WatcherConfig,
 ) {
 	defer wg.Done()
 
 	for job := range jobs {
-		err := processFileJob(ctx, db, job, batchSize, logStatEvery, errorCount, processedRecords, startTime)
+		err := processFileJob(ctx, db, job, batchSize, logStatEvery, metrics)
 		if err != nil {
 			log.Printf("[error] processing file %s: %v", job.Path, err)
 			cleanupFile(job.Path, watcherCfg)
-			atomic.AddInt64(errorCount, 1)
+			metrics.IncFailed()
 			continue
 		}
 
@@ -73,9 +69,7 @@ func processFileJob(
 	job InsertJob,
 	batchSize int,
 	logStatEvery int64,
-	errorCount *int64,
-	processedRecords *int64,
-	startTime time.Time,
+	metrics *SlurploadMetrics,
 ) error {
 	f, err := os.Open(job.Path)
 	if err != nil {
@@ -106,13 +100,13 @@ func processFileJob(
 		var cert extractor.CertFieldsExtractorOutput
 		if err := json.Unmarshal(scanner.Bytes(), &cert); err != nil {
 			log.Printf("[warn] bad json in %s: %v", job.Path, err)
-			atomic.AddInt64(errorCount, 1)
+			metrics.IncFailed()
 			continue
 		}
 		batch = append(batch, cert)
 
 		if len(batch) >= batchSize {
-			if err := insertBatch(ctx, db, batch, processedRecords, errorCount, logStatEvery, startTime); err != nil {
+			if err := insertBatch(ctx, db, batch, logStatEvery, metrics); err != nil {
 				return fmt.Errorf("insert batch: %w", err)
 			}
 			batch = batch[:0]
@@ -122,7 +116,7 @@ func processFileJob(
 		return fmt.Errorf("scanner error: %w", err)
 	}
 	if len(batch) > 0 {
-		if err := insertBatch(ctx, db, batch, processedRecords, errorCount, logStatEvery, startTime); err != nil {
+		if err := insertBatch(ctx, db, batch, logStatEvery, metrics); err != nil {
 			return fmt.Errorf("insert batch: %w", err)
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"database/sql"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -133,11 +134,14 @@ func TestInsertBatch(t *testing.T) {
 		Subject:            "CN=www.example.com,O=ExampleCorp",
 		LogIndex:           42,
 	}
-	var processed, errors int64
+
+	metrics := NewSlurploadMetrics()
+	metrics.Start()
+
 	err := insertBatch(
 		context.Background(), db,
 		[]extractor.CertFieldsExtractorOutput{cert},
-		&processed, &errors, 0, time.Now())
+		0, metrics)
 	require.NoError(t, err)
 
 	// Query for inserted certificate
@@ -154,9 +158,10 @@ func TestProcessFileJob_Plain_Gz_Bz2(t *testing.T) {
 			db := setupTestDB(t)
 			defer teardownTestDB(t, db)
 			path := writeTestFile(t, dir, ext, testData)
-			var processed, errors int64
+			metrics := NewSlurploadMetrics()
+			metrics.Start()
 			job := InsertJob{Name: filepath.Base(path), Path: path}
-			err := processFileJob(context.Background(), db, job, 10, 0, &errors, &processed, time.Now())
+			err := processFileJob(context.Background(), db, job, 10, 0, metrics)
 			require.NoError(t, err)
 			var count int
 			require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates`).Scan(&count))
@@ -202,14 +207,37 @@ func TestHTTPEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	// Process the file
-	var processed, errors int64
-	err = processFileJob(context.Background(), db, job, 10, 0, &errors, &processed, time.Now())
+	metrics := NewSlurploadMetrics()
+	metrics.Start()
+	err = processFileJob(context.Background(), db, job, 10, 0, metrics)
 	require.NoError(t, err)
 
 	// Assert DB content
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates`).Scan(&count))
 	require.Equal(t, 1, count)
+}
+
+func TestUploadHandler_Methods(t *testing.T) {
+	inboxDir := t.TempDir()
+	handler := uploadHandler(inboxDir)
+
+	cases := []struct {
+		method     string
+		wantStatus int
+	}{
+		{"POST", http.StatusNoContent},
+		{"PUT", http.StatusNoContent},
+		{"GET", http.StatusMethodNotAllowed},
+		{"DELETE", http.StatusMethodNotAllowed},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(tc.method, "/upload", bytes.NewReader([]byte(testData)))
+		w := httptest.NewRecorder()
+		handler(w, req)
+		resp := w.Result()
+		require.Equal(t, tc.wantStatus, resp.StatusCode)
+	}
 }
 
 func TestInboxWatcher_Workers_E2E(t *testing.T) {
@@ -227,6 +255,9 @@ func TestInboxWatcher_Workers_E2E(t *testing.T) {
 	// Start watcher
 	go StartInboxWatcher(cfg, jobs, stop)
 
+	metrics := NewSlurploadMetrics()
+	metrics.Start()
+
 	// Start workers
 	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
@@ -234,7 +265,7 @@ func TestInboxWatcher_Workers_E2E(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				_ = processFileJob(context.Background(), db, job, 10, 0, new(int64), new(int64), time.Now())
+				_ = processFileJob(context.Background(), db, job, 10, 0, metrics)
 			}
 		}()
 	}
@@ -317,8 +348,10 @@ func TestHTTPEndpoint_Compressed(t *testing.T) {
 				t.Fatalf("timed out waiting for watcher to enqueue job for %s", tc.name)
 			}
 
-			var processed, errors int64
-			err = processFileJob(context.Background(), db, job, 10, 0, &errors, &processed, time.Now())
+			metrics := NewSlurploadMetrics()
+			metrics.Start()
+
+			err = processFileJob(context.Background(), db, job, 10, 0, metrics)
 			require.NoError(t, err)
 
 			var count int
@@ -358,8 +391,9 @@ func TestWatcherMovesToDoneDir(t *testing.T) {
 	close(stop)
 
 	// Run the worker
-	var processed, errors int64
-	err := processFileJob(context.Background(), db, job, 10, 0, &errors, &processed, time.Now())
+	metrics := NewSlurploadMetrics()
+	metrics.Start()
+	err := processFileJob(context.Background(), db, job, 10, 0, metrics)
 	require.NoError(t, err)
 
 	// Move file (simulate worker cleanup)
@@ -443,4 +477,26 @@ database:
 	_, err = loadConfig(f.Name())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "database.host")
+}
+
+func TestMetricsHandler(t *testing.T) {
+	metrics := NewSlurploadMetrics()
+	metrics.Start()
+	metrics.IncProcessed()
+	metrics.IncFailed()
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+
+	handler := metricsHandler(metrics)
+	handler(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	// Check content type and body
+	require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	require.Contains(t, string(body), `"processed":1`)
+	require.Contains(t, string(body), `"failed":1`)
 }

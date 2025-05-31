@@ -2,23 +2,59 @@ package main
 
 import (
 	"compress/gzip"
+	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/dsnet/compress/bzip2"
 )
 
-// StartHTTPServer now takes inboxDir as an argument
-func StartHTTPServer(addr, inboxDir string) {
+func StartHTTPServer(ctx context.Context, cfg *SlurploadConfig, metrics *SlurploadMetrics) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/upload", uploadHandler(inboxDir))
+	mux.HandleFunc("/upload", uploadHandler(cfg.Processing.InboxDir))
+	mux.HandleFunc("/metrics", metricsHandler(metrics))
 
-	log.Printf("HTTP server listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	server := &http.Server{
+		Addr:    cfg.Server.ListenAddr,
+		Handler: mux,
+	}
+
+	go func() {
+		log.Printf("HTTP server listening on %s", cfg.Server.ListenAddr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	log.Println("Shutting down HTTP server gracefully...")
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
+}
+
+func metricsHandler(metrics *SlurploadMetrics) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		processed, failed, elapsed := metrics.Snapshot()
+		type status struct {
+			Processed int64         `json:"processed"`
+			Failed    int64         `json:"failed"`
+			Elapsed   time.Duration `json:"elapsed"`
+		}
+		s := status{Processed: processed, Failed: failed, Elapsed: elapsed}
+		_ = json.NewEncoder(w).Encode(s)
+	}
 }
 
 func uploadHandler(inboxDir string) http.HandlerFunc {
@@ -32,7 +68,12 @@ func uploadHandler(inboxDir string) http.HandlerFunc {
 	}
 }
 
-func handleUpload(_ http.ResponseWriter, r *http.Request, inboxDir string) error {
+func handleUpload(w http.ResponseWriter, r *http.Request, inboxDir string) error {
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return fmt.Errorf("method not allowed")
+	}
+
 	// Guess compression and set extension
 	ext := ".jsonl" // default
 
@@ -70,6 +111,12 @@ func handleUpload(_ http.ResponseWriter, r *http.Request, inboxDir string) error
 	log.Printf("[upload] received %s (%d bytes)", inboxPath, n)
 
 	return nil
+}
+
+func jsonError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 // Detects compression from Content-Type and Content-Encoding, wraps decompressor if needed

@@ -97,15 +97,14 @@ func main() {
 			jobs := make(chan InsertJob, cfg.Database.BatchSize*cfg.Database.MaxConns)
 			var wg sync.WaitGroup
 
-			var processedRecords int64 = 0
-			var errorCount int64 = 0
-			startTime := time.Now()
+			metrics := NewSlurploadMetrics()
+			metrics.Start()
 
 			watcherCfg := NewWatcherConfig("", "", []string{}, 0*time.Second)
 
 			for i := 0; i < cfg.Database.MaxConns; i++ {
 				wg.Add(1)
-				go fileWorker(ctx, db, jobs, cfg.Database.BatchSize, &wg, cfg.Metrics.LogStatEvery, &errorCount, &processedRecords, startTime, "", watcherCfg)
+				go fileWorker(ctx, db, jobs, cfg.Database.BatchSize, &wg, cfg.Metrics.LogStatEvery, metrics, "", watcherCfg)
 			}
 
 			// Save stdin/archive to temp file for file-based batching
@@ -123,7 +122,7 @@ func main() {
 			jobs <- InsertJob{Name: filepath.Base(tmp.Name()), Path: tmp.Name()}
 			close(jobs)
 			wg.Wait()
-			log.Printf("Done. %d records processed. %d errors encountered. Elapsed: %v", processedRecords, errorCount, time.Since(startTime).Truncate(time.Second))
+			log.Printf("Done. %s", metrics)
 			return nil
 		},
 	}
@@ -148,13 +147,13 @@ func main() {
 				return err
 			}
 
-			var processedRecords int64 = 0
-			var errorCount int64 = 0
-			startTime := time.Now()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			jobs := make(chan InsertJob, 32*cfg.Database.MaxConns)
 			var wg sync.WaitGroup
+
+			metrics := NewSlurploadMetrics()
+			metrics.Start()
 
 			patterns := strings.Split(cfg.Processing.InboxPatterns, ",")
 			watcherCfg := NewWatcherConfig(cfg.Processing.InboxDir, cfg.Processing.DoneDir, patterns, cfg.Processing.InboxPollInterval)
@@ -162,7 +161,7 @@ func main() {
 			// Start workers
 			for i := 0; i < cfg.Database.MaxConns; i++ {
 				wg.Add(1)
-				go fileWorker(ctx, db, jobs, cfg.Database.BatchSize, &wg, cfg.Metrics.LogStatEvery, &errorCount, &processedRecords, startTime, cfg.Processing.DoneDir, watcherCfg)
+				go fileWorker(ctx, db, jobs, cfg.Database.BatchSize, &wg, cfg.Metrics.LogStatEvery, metrics, cfg.Processing.DoneDir, watcherCfg)
 			}
 
 			stop := make(chan struct{})
@@ -171,9 +170,9 @@ func main() {
 				go StartInboxWatcher(watcherCfg, jobs, stop)
 				log.Printf("Inbox watcher started on %s", cfg.Processing.InboxDir)
 			}
+
 			if cfg.Server.ListenAddr != "" && cfg.Processing.InboxDir != "" {
-				go StartHTTPServer(cfg.Server.ListenAddr, cfg.Processing.InboxDir)
-				log.Printf("HTTP server started at %s, uploads go to %s", cfg.Server.ListenAddr, cfg.Processing.InboxDir)
+				go StartHTTPServer(ctx, cfg, metrics)
 			}
 
 			// Graceful shutdown on SIGINT/SIGTERM
@@ -186,7 +185,7 @@ func main() {
 			}
 			close(jobs)
 			wg.Wait()
-			log.Printf("Done. %d records processed. %d errors encountered. Elapsed: %v", processedRecords, errorCount, time.Since(startTime).Truncate(time.Second))
+			log.Printf("Done. %s", metrics)
 			return nil
 		},
 	}

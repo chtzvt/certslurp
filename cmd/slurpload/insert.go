@@ -7,7 +7,6 @@ import (
 	"log"
 	"math/rand"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/chtzvt/certslurp/internal/extractor"
@@ -23,10 +22,8 @@ func insertBatch(
 	ctx context.Context,
 	db *sql.DB,
 	batch []extractor.CertFieldsExtractorOutput,
-	processedRecords *int64,
-	errorCount *int64,
 	logStatEvery int64,
-	startTime time.Time,
+	metrics *SlurploadMetrics,
 ) error {
 	if len(batch) == 0 {
 		return nil
@@ -67,7 +64,7 @@ func insertBatch(
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			log.Printf("batch tx begin error: %v", err)
-			atomic.AddInt64(errorCount, 1)
+			metrics.IncFailed()
 			return err
 		}
 
@@ -162,9 +159,9 @@ func insertBatch(
 					break
 				}
 				if logStatEvery > 0 {
-					n := atomic.AddInt64(processedRecords, 1)
+					n := metrics.IncProcessed()
 					if n%logStatEvery == 0 {
-						log.Printf("[progress] %d records processed, %d errors, elapsed: %v", n, atomic.LoadInt64(errorCount), time.Since(startTime).Truncate(time.Second))
+						log.Printf("[progress] %s", metrics)
 					}
 				}
 			}
@@ -181,13 +178,13 @@ func insertBatch(
 				continue
 			} else {
 				log.Printf("Batch failed after %d attempts due to repeated deadlocks or errors", maxRetries)
-				atomic.AddInt64(errorCount, 1)
+				metrics.IncFailed()
 			}
 		} else {
 			err = tx.Commit()
 			if err != nil {
 				log.Printf("batch tx commit error: %v", err)
-				atomic.AddInt64(errorCount, 1)
+				metrics.IncFailed()
 			} else {
 				for k, v := range pendingCache {
 					fqdnCache.Add(k, v)
