@@ -1,0 +1,23 @@
+database:
+  host: "localhost"
+  port: 5432
+  username: "slurp"
+  password: "secret"
+  database: "certs"
+  ssl_mode: "disable"
+  max_conns: 8
+  batch_size: 100
+  cache_size: 250000
+
+server:
+  listen_addr: ":8080"
+
+processing:
+  inbox_dir: "/data/inbox"
+  done_dir: "/data/done"
+  inbox_patterns: "*.jsonl,*.jsonl.gz,*.jsonl.bz2"
+  inbox_poll: 2s
+  enable_watcher: true
+
+metrics:
+  log_stat_every: 1000

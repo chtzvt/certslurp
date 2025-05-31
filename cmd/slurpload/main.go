@@ -14,39 +14,50 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
-	var (
-		configPath   string
-		maxDBConns   int
-		batchSize    int
-		logStatEvery int64
-		cacheSize    int
-	)
 
 	rootCmd := &cobra.Command{
 		Use:   "slurpload",
 		Short: "certslurp ingester for PostgreSQL",
 	}
 
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to DB config JSON (required)")
-	rootCmd.PersistentFlags().IntVar(&maxDBConns, "max-db-conns", 8, "Number of concurrent DB workers")
-	rootCmd.PersistentFlags().IntVar(&batchSize, "batch-size", 100, "Number of records to insert per transaction/batch")
-	rootCmd.PersistentFlags().IntVar(&cacheSize, "cache-size", 250_000, "FQDN cache size (default: 250,000)")
-	rootCmd.PersistentFlags().Int64Var(&logStatEvery, "logstat", 1000, "Emit stats every N records processed (0 disables)")
+	rootCmd.PersistentFlags().String("config", "", "Path to config file")
+	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 	rootCmd.MarkPersistentFlagRequired("config")
+
+	rootCmd.PersistentFlags().Int("max-db-conns", 8, "Number of concurrent DB workers")
+	viper.BindPFlag("database.max_conns", rootCmd.PersistentFlags().Lookup("max-db-conns"))
+
+	rootCmd.PersistentFlags().Int("batch-size", 100, "Number of records to insert per transaction/batch")
+	viper.BindPFlag("database.batch_size", rootCmd.PersistentFlags().Lookup("batch-size"))
+
+	rootCmd.PersistentFlags().Int("cache-size", 250_000, "FQDN cache size (default: 250,000)")
+	viper.BindPFlag("database.cache_size", rootCmd.PersistentFlags().Lookup("cache-size"))
+
+	rootCmd.PersistentFlags().Int64("logstat", 1000, "Emit stats every N records processed (0 disables)")
+	viper.BindPFlag("metrics.log_stat_every", rootCmd.PersistentFlags().Lookup("logstat"))
+
+	var cfg *SlurploadConfig
+
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		loadedConfig, err := loadConfig(viper.GetString("config"))
+		if err != nil {
+			return err
+		}
+		cfg = loadedConfig
+		return nil
+	}
 
 	// ----- init-db command -----
 	initCmd := &cobra.Command{
 		Use:   "init-db",
 		Short: "Initialize database schema",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadConfig(configPath)
-			if err != nil {
-				return err
-			}
-			db, err := openDatabase(buildDSN(cfg), maxDBConns)
+			db, err := openDatabase(cfg)
 			if err != nil {
 				return err
 			}
@@ -67,17 +78,13 @@ func main() {
 		Use:   "load",
 		Short: "One-shot ingest of archive or file (stdin or disk)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadConfig(configPath)
-			if err != nil {
-				return err
-			}
-			db, err := openDatabase(buildDSN(cfg), maxDBConns)
+			db, err := openDatabase(cfg)
 			if err != nil {
 				return err
 			}
 			defer db.Close()
 
-			fqdnCache, err = initFQDNLRUCache(cacheSize)
+			fqdnCache, err = initFQDNLRUCache(cfg.Database.CacheSize)
 			if err != nil {
 				return err
 			}
@@ -87,7 +94,7 @@ func main() {
 				return err
 			}
 			ctx := context.Background()
-			jobs := make(chan InsertJob, batchSize*maxDBConns)
+			jobs := make(chan InsertJob, cfg.Database.BatchSize*cfg.Database.MaxConns)
 			var wg sync.WaitGroup
 
 			var processedRecords int64 = 0
@@ -96,9 +103,9 @@ func main() {
 
 			watcherCfg := NewWatcherConfig("", "", []string{}, 0*time.Second)
 
-			for i := 0; i < maxDBConns; i++ {
+			for i := 0; i < cfg.Database.MaxConns; i++ {
 				wg.Add(1)
-				go fileWorker(ctx, db, jobs, batchSize, &wg, logStatEvery, &errorCount, &processedRecords, startTime, "", watcherCfg)
+				go fileWorker(ctx, db, jobs, cfg.Database.BatchSize, &wg, cfg.Metrics.LogStatEvery, &errorCount, &processedRecords, startTime, "", watcherCfg)
 			}
 
 			// Save stdin/archive to temp file for file-based batching
@@ -126,28 +133,17 @@ func main() {
 	loadCmd.MarkFlagRequired("archive")
 
 	// ----- serve command -----
-	var httpAddr string
-	var inboxDir string
-	var doneDir string
-	var pollInterval time.Duration
-	var filePatterns string
-	var enableWatcher bool
-
 	serveCmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run HTTP upload server, inbox watcher, or both (continuous ingestion mode)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadConfig(configPath)
-			if err != nil {
-				return err
-			}
-			db, err := openDatabase(buildDSN(cfg), maxDBConns)
+			db, err := openDatabase(cfg)
 			if err != nil {
 				return err
 			}
 			defer db.Close()
 
-			fqdnCache, err = initFQDNLRUCache(cacheSize)
+			fqdnCache, err = initFQDNLRUCache(cfg.Database.CacheSize)
 			if err != nil {
 				return err
 			}
@@ -157,27 +153,27 @@ func main() {
 			startTime := time.Now()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			jobs := make(chan InsertJob, 32*maxDBConns)
+			jobs := make(chan InsertJob, 32*cfg.Database.MaxConns)
 			var wg sync.WaitGroup
 
-			patterns := strings.Split(filePatterns, ",")
-			watcherCfg := NewWatcherConfig(inboxDir, doneDir, patterns, pollInterval)
+			patterns := strings.Split(cfg.Processing.InboxPatterns, ",")
+			watcherCfg := NewWatcherConfig(cfg.Processing.InboxDir, cfg.Processing.DoneDir, patterns, cfg.Processing.InboxPollInterval)
 
 			// Start workers
-			for i := 0; i < maxDBConns; i++ {
+			for i := 0; i < cfg.Database.MaxConns; i++ {
 				wg.Add(1)
-				go fileWorker(ctx, db, jobs, batchSize, &wg, logStatEvery, &errorCount, &processedRecords, startTime, doneDir, watcherCfg)
+				go fileWorker(ctx, db, jobs, cfg.Database.BatchSize, &wg, cfg.Metrics.LogStatEvery, &errorCount, &processedRecords, startTime, cfg.Processing.DoneDir, watcherCfg)
 			}
 
 			stop := make(chan struct{})
 
-			if enableWatcher && inboxDir != "" {
+			if cfg.Processing.EnableWatcher && cfg.Processing.InboxDir != "" {
 				go StartInboxWatcher(watcherCfg, jobs, stop)
-				log.Printf("Inbox watcher started on %s", inboxDir)
+				log.Printf("Inbox watcher started on %s", cfg.Processing.InboxDir)
 			}
-			if httpAddr != "" && inboxDir != "" {
-				go StartHTTPServer(httpAddr, inboxDir)
-				log.Printf("HTTP server started at %s, uploads go to %s", httpAddr, inboxDir)
+			if cfg.Server.ListenAddr != "" && cfg.Processing.InboxDir != "" {
+				go StartHTTPServer(cfg.Server.ListenAddr, cfg.Processing.InboxDir)
+				log.Printf("HTTP server started at %s, uploads go to %s", cfg.Server.ListenAddr, cfg.Processing.InboxDir)
 			}
 
 			// Graceful shutdown on SIGINT/SIGTERM
@@ -194,12 +190,38 @@ func main() {
 			return nil
 		},
 	}
-	serveCmd.Flags().StringVar(&httpAddr, "http", "", "Serve HTTP upload endpoint at this address")
-	serveCmd.Flags().StringVar(&inboxDir, "inbox", "", "Inbox directory to watch for uploads")
-	serveCmd.Flags().StringVar(&doneDir, "done", "", "Directory to move processed files to (default: delete after processing)")
-	serveCmd.Flags().DurationVar(&pollInterval, "poll", 2*time.Second, "Inbox watcher poll interval")
-	serveCmd.Flags().StringVar(&filePatterns, "patterns", "*.jsonl,*.jsonl.gz,*.jsonl.bz2", "Comma-separated file patterns for inbox watcher")
-	serveCmd.Flags().BoolVar(&enableWatcher, "watch-inbox", true, "Enable inbox directory watcher")
+
+	serveCmd.Flags().String("http", "", "Serve HTTP upload endpoint at this address")
+	viper.BindPFlag("server.listen_addr", serveCmd.Flags().Lookup("http"))
+
+	serveCmd.Flags().String("inbox", "", "Inbox directory to watch for uploads")
+	viper.BindPFlag("processing.inbox_dir", serveCmd.Flags().Lookup("inbox"))
+
+	serveCmd.Flags().String("done", "", "Directory to move processed files to")
+	viper.BindPFlag("processing.done_dir", serveCmd.Flags().Lookup("done"))
+
+	serveCmd.Flags().Duration("poll", 2*time.Second, "Inbox watcher poll interval")
+	viper.BindPFlag("processing.inbox_poll", serveCmd.Flags().Lookup("poll"))
+
+	serveCmd.Flags().String("patterns", "*.jsonl,*.jsonl.gz,*.jsonl.bz2", "Inbox file patterns")
+	viper.BindPFlag("processing.inbox_patterns", serveCmd.Flags().Lookup("patterns"))
+
+	serveCmd.Flags().Bool("watch-inbox", true, "Enable inbox directory watcher")
+	viper.BindPFlag("processing.enable_watcher", serveCmd.Flags().Lookup("watch-inbox"))
+
+	configCmd := &cobra.Command{
+		Use:   "config",
+		Short: "Print effective configuration",
+		Run: func(cmd *cobra.Command, args []string) {
+			loadedConfig, err := loadConfig(viper.GetString("config"))
+			if err != nil {
+				log.Fatalf("Config error: %v", err)
+			}
+			b, _ := yaml.Marshal(loadedConfig)
+			fmt.Println(string(b))
+		},
+	}
+	rootCmd.AddCommand(configCmd)
 
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(loadCmd)

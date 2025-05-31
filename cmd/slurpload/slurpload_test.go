@@ -373,3 +373,74 @@ func TestWatcherMovesToDoneDir(t *testing.T) {
 	_, err = os.Stat(dest)
 	require.NoError(t, err)
 }
+
+func TestLoadConfig_YAML(t *testing.T) {
+	// Create a temp YAML file
+	yamlContent := `
+database:
+  host: "localhost"
+  port: 5432
+  username: "test"
+  password: "s3cr3t"
+  database: "certs"
+  ssl_mode: "disable"
+  max_conns: 10
+  batch_size: 50
+  cache_size: 12345
+server:
+  listen_addr: ":8081"
+processing:
+  inbox_dir: "/tmp/inbox"
+  done_dir: "/tmp/done"
+  inbox_patterns: "*.jsonl,*.gz"
+  inbox_poll: 1s
+  enable_watcher: true
+metrics:
+  log_stat_every: 17
+`
+	f, err := os.CreateTemp("", "slurpload-config-*.yaml")
+	require.NoError(t, err)
+	defer os.Remove(f.Name())
+	_, err = f.Write([]byte(yamlContent))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	cfg, err := loadConfig(f.Name())
+	require.NoError(t, err)
+
+	// Check all fields
+	require.Equal(t, "localhost", cfg.Database.Host)
+	require.Equal(t, 5432, cfg.Database.Port)
+	require.Equal(t, "test", cfg.Database.Username)
+	require.Equal(t, "s3cr3t", cfg.Database.Password)
+	require.Equal(t, "certs", cfg.Database.DatabaseName)
+	require.Equal(t, "disable", cfg.Database.SSLMode)
+	require.Equal(t, 10, cfg.Database.MaxConns)
+	require.Equal(t, 50, cfg.Database.BatchSize)
+	require.Equal(t, 12345, cfg.Database.CacheSize)
+	require.Equal(t, ":8081", cfg.Server.ListenAddr)
+	require.Equal(t, "/tmp/inbox", cfg.Processing.InboxDir)
+	require.Equal(t, "/tmp/done", cfg.Processing.DoneDir)
+	require.Equal(t, "*.jsonl,*.gz", cfg.Processing.InboxPatterns)
+	require.Equal(t, true, cfg.Processing.EnableWatcher)
+	require.Equal(t, int64(17), cfg.Metrics.LogStatEvery)
+	require.Equal(t, 1*time.Second, cfg.Processing.InboxPollInterval)
+}
+
+func TestLoadConfig_Validation(t *testing.T) {
+	// Minimal config with missing required fields
+	yamlContent := `
+database:
+  port: 5432
+`
+	f, err := os.CreateTemp("", "slurpload-config-*.yaml")
+	require.NoError(t, err)
+	defer os.Remove(f.Name())
+	_, err = f.Write([]byte(yamlContent))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	_, err = loadConfig(f.Name())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "database.host")
+}
