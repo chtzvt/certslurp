@@ -13,17 +13,17 @@ import (
 )
 
 // StartHTTPServer now takes inboxDir as an argument
-func StartHTTPServer(addr, inboxDir string, jobs chan<- InsertJob) {
+func StartHTTPServer(addr, inboxDir string) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/upload", uploadHandler(inboxDir, jobs))
+	mux.HandleFunc("/upload", uploadHandler(inboxDir))
 
 	log.Printf("HTTP server listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-func uploadHandler(inboxDir string, jobs chan<- InsertJob) http.HandlerFunc {
+func uploadHandler(inboxDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		err := handleUpload(w, r, inboxDir, jobs)
+		err := handleUpload(w, r, inboxDir)
 		if err != nil {
 			http.Error(w, "upload error: "+err.Error(), http.StatusBadRequest)
 			return
@@ -32,7 +32,7 @@ func uploadHandler(inboxDir string, jobs chan<- InsertJob) http.HandlerFunc {
 	}
 }
 
-func handleUpload(_ http.ResponseWriter, r *http.Request, inboxDir string, jobs chan<- InsertJob) error {
+func handleUpload(_ http.ResponseWriter, r *http.Request, inboxDir string) error {
 	// Guess compression and set extension
 	ext := ".jsonl" // default
 
@@ -47,8 +47,8 @@ func handleUpload(_ http.ResponseWriter, r *http.Request, inboxDir string, jobs 
 		ext = ".jsonl.bz2"
 	}
 
-	// Create temp file with correct extension in inboxDir
-	tmp, err := os.CreateTemp(inboxDir, "upload-*"+ext)
+	// Create temp file in inboxDir with no extension to avoid triggering watcher
+	tmp, err := os.CreateTemp(inboxDir, "upload-*")
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func handleUpload(_ http.ResponseWriter, r *http.Request, inboxDir string, jobs 
 	}
 
 	// Move (rename) to final inbox path for watcher to pick up
-	baseName := filepath.Base(tmp.Name())
+	baseName := filepath.Base(tmp.Name()) + ext
 	inboxPath := filepath.Join(inboxDir, baseName)
 	if err := os.Rename(tmp.Name(), inboxPath); err != nil {
 		os.Remove(tmp.Name())
@@ -68,7 +68,7 @@ func handleUpload(_ http.ResponseWriter, r *http.Request, inboxDir string, jobs 
 	}
 
 	log.Printf("[upload] received %s (%d bytes)", inboxPath, n)
-	jobs <- InsertJob{Name: baseName, Path: inboxPath}
+
 	return nil
 }
 

@@ -7,6 +7,9 @@ import (
 )
 
 const schemaSQL = `
+-- Enable pg_trgm
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- Root Domains
 CREATE TABLE IF NOT EXISTS root_domains (
     id BIGSERIAL PRIMARY KEY,
@@ -61,6 +64,10 @@ var indexes = []string{
 	`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_certificates_not_after ON certificates(not_after);`,
 	`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_subdomain_certificates_subdomain_id ON subdomain_certificates(subdomain_id);`,
 	`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_subdomain_certificates_certificate_id ON subdomain_certificates(certificate_id);`,
+	`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_subdomains_fqdn_trgm ON subdomains USING gin (fqdn gin_trgm_ops);`,
+	`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_certificates_organization_gin ON certificates USING gin (organization);`,
+	`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_certificates_country_gin ON certificates USING gin (country);`,
+	`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_certificates_province_gin ON certificates USING gin (province);`,
 }
 
 func runInitDB(db *sql.DB) error {

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -12,12 +13,45 @@ type WatcherConfig struct {
 	DoneDir      string // Optional: Where to move processed files, or "" to delete after processing
 	PollInterval time.Duration
 	FilePatterns []string // e.g. []string{"*.jsonl", "*.jsonl.gz", "*.jsonl.bz2"}
+	seenFiles    map[string]time.Time
+	seenMu       sync.Mutex
+}
+
+func NewWatcherConfig(inboxDir, doneDir string, filePatterns []string, pollInterval time.Duration) *WatcherConfig {
+	return &WatcherConfig{
+		InboxDir:     inboxDir,
+		DoneDir:      doneDir,
+		PollInterval: pollInterval,
+		FilePatterns: filePatterns,
+		seenFiles:    make(map[string]time.Time),
+	}
+}
+
+func (w *WatcherConfig) AddSeen(file string) {
+	w.seenMu.Lock()
+	defer w.seenMu.Unlock()
+
+	w.seenFiles[file] = time.Now()
+}
+
+func (w *WatcherConfig) RemoveSeen(file string) {
+	w.seenMu.Lock()
+	defer w.seenMu.Unlock()
+
+	delete(w.seenFiles, file)
+}
+
+func (w *WatcherConfig) HasSeen(file string) bool {
+	w.seenMu.Lock()
+	defer w.seenMu.Unlock()
+
+	_, seen := w.seenFiles[file]
+
+	return seen
 }
 
 // StartInboxWatcher polls the inbox directory and enqueues unprocessed files for loading.
-func StartInboxWatcher(cfg WatcherConfig, jobs chan<- InsertJob, stop <-chan struct{}) {
-	seen := make(map[string]struct{})
-
+func StartInboxWatcher(cfg *WatcherConfig, jobs chan<- InsertJob, stop <-chan struct{}) {
 	for {
 		select {
 		case <-stop:
@@ -31,10 +65,10 @@ func StartInboxWatcher(cfg WatcherConfig, jobs chan<- InsertJob, stop <-chan str
 				continue
 			}
 			for _, file := range files {
-				if _, already := seen[file]; already {
+				if cfg.HasSeen(file) {
 					continue
 				}
-				// Optionally: skip files that are being written to (check mtime/size twice)
+				// skip files that are being written to (check mtime/size twice)
 				if isFileLocked(file) {
 					log.Printf("File %s appears locked/busy, will retry later", file)
 					continue
@@ -42,7 +76,7 @@ func StartInboxWatcher(cfg WatcherConfig, jobs chan<- InsertJob, stop <-chan str
 
 				log.Printf("Watcher: queueing file %s for loading", file)
 				jobs <- InsertJob{Name: filepath.Base(file), Path: file}
-				seen[file] = struct{}{}
+				cfg.AddSeen(file)
 				// File will be deleted/moved by batcher/worker after DB insert completes
 			}
 			time.Sleep(cfg.PollInterval)

@@ -171,10 +171,14 @@ func TestHTTPEndpoint(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(t, db)
 
-	// Set up temp inbox dir
 	inboxDir := t.TempDir()
-	jobs := make(chan InsertJob, 1)
-	srv := httptest.NewUnstartedServer(uploadHandler(inboxDir, jobs))
+	stop := make(chan struct{})
+	jobs := make(chan InsertJob, 2)
+
+	cfg := NewWatcherConfig(inboxDir, "", []string{"*.jsonl"}, 50*time.Millisecond)
+	go StartInboxWatcher(cfg, jobs, stop)
+
+	srv := httptest.NewUnstartedServer(uploadHandler(inboxDir))
 	srv.Start()
 	defer srv.Close()
 
@@ -183,13 +187,15 @@ func TestHTTPEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-	// Wait for job
+	// Wait for watcher to see and enqueue the job
 	var job InsertJob
 	select {
 	case job = <-jobs:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for insert job")
+	case <-time.After(3 * time.Second):
+		close(stop)
+		t.Fatal("timed out waiting for watcher to enqueue job")
 	}
+	close(stop) // stop watcher
 
 	// File should exist
 	_, err = os.Stat(job.Path)
@@ -216,12 +222,7 @@ func TestInboxWatcher_Workers_E2E(t *testing.T) {
 	jobs := make(chan InsertJob, 2)
 	stop := make(chan struct{})
 
-	cfg := WatcherConfig{
-		InboxDir:     inboxDir,
-		DoneDir:      "",
-		PollInterval: 100 * time.Millisecond,
-		FilePatterns: []string{"*.jsonl"},
-	}
+	cfg := NewWatcherConfig(inboxDir, "", []string{"*.jsonl"}, 100*time.Millisecond)
 
 	// Start watcher
 	go StartInboxWatcher(cfg, jobs, stop)
@@ -253,8 +254,12 @@ func TestInboxWatcher_Workers_E2E(t *testing.T) {
 
 func TestHTTPEndpoint_Compressed(t *testing.T) {
 	inboxDir := t.TempDir()
-	jobs := make(chan InsertJob, 1)
-	srv := httptest.NewUnstartedServer(uploadHandler(inboxDir, jobs))
+	stop := make(chan struct{})
+	jobs := make(chan InsertJob, 2)
+	cfg := NewWatcherConfig(inboxDir, "", []string{"*.jsonl", "*.jsonl.gz", "*.jsonl.bz2"}, 50*time.Millisecond)
+	go StartInboxWatcher(cfg, jobs, stop)
+
+	srv := httptest.NewUnstartedServer(uploadHandler(inboxDir))
 	srv.Start()
 	defer srv.Close()
 
@@ -263,6 +268,7 @@ func TestHTTPEndpoint_Compressed(t *testing.T) {
 		content  []byte
 		ct       string
 		encoding string
+		ext      string
 	}
 	tests := []testCase{
 		{
@@ -270,24 +276,29 @@ func TestHTTPEndpoint_Compressed(t *testing.T) {
 			content:  []byte(testData),
 			ct:       "application/json",
 			encoding: "",
+			ext:      ".jsonl",
 		},
 		{
 			name:     "gzip",
 			content:  compressGzip([]byte(testData)),
 			ct:       "application/json",
 			encoding: "gzip",
+			ext:      ".jsonl.gz",
 		},
 		{
 			name:     "bzip2",
 			content:  compressBzip2([]byte(testData)),
 			ct:       "application/json",
 			encoding: "bzip2",
+			ext:      ".jsonl.bz2",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupTestDB(t)
+			defer teardownTestDB(t, db)
+
 			req, err := http.NewRequest("POST", srv.URL+"/upload", bytes.NewReader(tc.content))
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", tc.ct)
@@ -301,22 +312,22 @@ func TestHTTPEndpoint_Compressed(t *testing.T) {
 			var job InsertJob
 			select {
 			case job = <-jobs:
-			case <-time.After(2 * time.Second):
-				t.Fatal("timed out waiting for insert job")
+			case <-time.After(3 * time.Second):
+				close(stop)
+				t.Fatalf("timed out waiting for watcher to enqueue job for %s", tc.name)
 			}
 
-			// Process file with worker logic
 			var processed, errors int64
 			err = processFileJob(context.Background(), db, job, 10, 0, &errors, &processed, time.Now())
 			require.NoError(t, err)
 
-			// Validate DB contents
 			var count int
 			require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates`).Scan(&count))
 			require.Equal(t, 1, count)
-			teardownTestDB(t, db) // clear for next subtest
 		})
 	}
+
+	close(stop)
 }
 
 func TestWatcherMovesToDoneDir(t *testing.T) {
@@ -331,12 +342,9 @@ func TestWatcherMovesToDoneDir(t *testing.T) {
 
 	jobs := make(chan InsertJob, 1)
 	stop := make(chan struct{})
-	cfg := WatcherConfig{
-		InboxDir:     inboxDir,
-		DoneDir:      doneDir,
-		PollInterval: 200 * time.Millisecond,
-		FilePatterns: []string{"*.jsonl"},
-	}
+
+	cfg := NewWatcherConfig(inboxDir, doneDir, []string{"*.jsonl"}, 200*time.Millisecond)
+
 	go StartInboxWatcher(cfg, jobs, stop)
 
 	// Get the job

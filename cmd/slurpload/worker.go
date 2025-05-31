@@ -31,6 +31,7 @@ func fileWorker(
 	processedRecords *int64,
 	startTime time.Time,
 	doneDir string,
+	watcherCfg *WatcherConfig,
 ) {
 	defer wg.Done()
 
@@ -38,6 +39,7 @@ func fileWorker(
 		err := processFileJob(ctx, db, job, batchSize, logStatEvery, errorCount, processedRecords, startTime)
 		if err != nil {
 			log.Printf("[error] processing file %s: %v", job.Path, err)
+			cleanupFile(job.Path, watcherCfg)
 			atomic.AddInt64(errorCount, 1)
 			continue
 		}
@@ -47,13 +49,22 @@ func fileWorker(
 			dest := filepath.Join(doneDir, filepath.Base(job.Path))
 			if err := os.Rename(job.Path, dest); err != nil {
 				log.Printf("[error] failed to move %s to done dir: %v", job.Path, err)
+			} else {
+				watcherCfg.RemoveSeen(job.Path)
 			}
 		} else {
-			if err := os.Remove(job.Path); err != nil {
+			if err := cleanupFile(job.Path, watcherCfg); err != nil {
 				log.Printf("[error] failed to delete %s after processing: %v", job.Path, err)
 			}
 		}
 	}
+}
+
+func cleanupFile(path string, w *WatcherConfig) error {
+	err := os.Remove(path)
+	w.RemoveSeen(path)
+
+	return err
 }
 
 func processFileJob(

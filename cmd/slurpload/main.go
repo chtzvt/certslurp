@@ -94,9 +94,11 @@ func main() {
 			var errorCount int64 = 0
 			startTime := time.Now()
 
+			watcherCfg := NewWatcherConfig("", "", []string{}, 0*time.Second)
+
 			for i := 0; i < maxDBConns; i++ {
 				wg.Add(1)
-				go fileWorker(ctx, db, jobs, batchSize, &wg, logStatEvery, &errorCount, &processedRecords, startTime, "")
+				go fileWorker(ctx, db, jobs, batchSize, &wg, logStatEvery, &errorCount, &processedRecords, startTime, "", watcherCfg)
 			}
 
 			// Save stdin/archive to temp file for file-based batching
@@ -158,27 +160,23 @@ func main() {
 			jobs := make(chan InsertJob, 32*maxDBConns)
 			var wg sync.WaitGroup
 
+			patterns := strings.Split(filePatterns, ",")
+			watcherCfg := NewWatcherConfig(inboxDir, doneDir, patterns, pollInterval)
+
 			// Start workers
 			for i := 0; i < maxDBConns; i++ {
 				wg.Add(1)
-				go fileWorker(ctx, db, jobs, batchSize, &wg, logStatEvery, &errorCount, &processedRecords, startTime, doneDir)
+				go fileWorker(ctx, db, jobs, batchSize, &wg, logStatEvery, &errorCount, &processedRecords, startTime, doneDir, watcherCfg)
 			}
 
 			stop := make(chan struct{})
 
 			if enableWatcher && inboxDir != "" {
-				patterns := strings.Split(filePatterns, ",")
-				watcherCfg := WatcherConfig{
-					InboxDir:     inboxDir,
-					DoneDir:      doneDir,
-					PollInterval: pollInterval,
-					FilePatterns: patterns,
-				}
 				go StartInboxWatcher(watcherCfg, jobs, stop)
 				log.Printf("Inbox watcher started on %s", inboxDir)
 			}
 			if httpAddr != "" && inboxDir != "" {
-				go StartHTTPServer(httpAddr, inboxDir, jobs)
+				go StartHTTPServer(httpAddr, inboxDir)
 				log.Printf("HTTP server started at %s, uploads go to %s", httpAddr, inboxDir)
 			}
 
@@ -201,7 +199,7 @@ func main() {
 	serveCmd.Flags().StringVar(&doneDir, "done", "", "Directory to move processed files to (default: delete after processing)")
 	serveCmd.Flags().DurationVar(&pollInterval, "poll", 2*time.Second, "Inbox watcher poll interval")
 	serveCmd.Flags().StringVar(&filePatterns, "patterns", "*.jsonl,*.jsonl.gz,*.jsonl.bz2", "Comma-separated file patterns for inbox watcher")
-	serveCmd.Flags().BoolVar(&enableWatcher, "watch-inbox", false, "Enable inbox directory watcher")
+	serveCmd.Flags().BoolVar(&enableWatcher, "watch-inbox", true, "Enable inbox directory watcher")
 
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(loadCmd)
