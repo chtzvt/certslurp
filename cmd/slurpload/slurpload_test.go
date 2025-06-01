@@ -293,6 +293,8 @@ func TestInsertBatch(t *testing.T) {
 		0, metrics)
 	require.NoError(t, err)
 
+	require.NoError(t, FlushNow(db))
+
 	// Query for inserted certificate
 	var cn string
 	err = db.QueryRow(`SELECT cn FROM certificates WHERE cn = $1`, "www.example.com").Scan(&cn)
@@ -527,6 +529,9 @@ func TestProcessFileJob_Plain_Gz_Bz2(t *testing.T) {
 			job := InsertJob{Name: filepath.Base(path), Path: path}
 			err := processFileJob(context.Background(), db, job, 10, 0, metrics)
 			require.NoError(t, err)
+
+			require.NoError(t, FlushNow(db))
+
 			var count int
 			require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates`).Scan(&count))
 			require.Equal(t, 1, count)
@@ -574,6 +579,7 @@ func TestHTTPEndpoint(t *testing.T) {
 	metrics := NewSlurploadMetrics()
 	metrics.Start()
 	err = processFileJob(context.Background(), db, job, 10, 0, metrics)
+	require.NoError(t, FlushNow(db))
 	require.NoError(t, err)
 
 	// Assert DB content
@@ -641,6 +647,7 @@ func TestInboxWatcher_Workers_E2E(t *testing.T) {
 	close(jobs)                        // let workers drain jobs
 	wg.Wait()
 
+	require.NoError(t, FlushNow(db))
 	// Assert DB content
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates`).Scan(&count))
@@ -717,6 +724,8 @@ func TestHTTPEndpoint_Compressed(t *testing.T) {
 
 			err = processFileJob(context.Background(), db, job, 10, 0, metrics)
 			require.NoError(t, err)
+
+			require.NoError(t, FlushNow(db))
 
 			var count int
 			require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates`).Scan(&count))

@@ -74,13 +74,7 @@ func insertBatch(
 		return fmt.Errorf("COPY close: %w", err)
 	}
 
-	// 4. Call flush function for this batch (let DB handle normalization)
-	_, err = tx.Exec(`SELECT flush_raw_certificates($1)`, "worker")
-	if err != nil {
-		return fmt.Errorf("flush_raw_certificates: %w", err)
-	}
-
-	// 5. Commit
+	// Commit
 	if err := tx.Commit(); err != nil {
 		metrics.IncFailed()
 		return fmt.Errorf("commit: %w", err)
@@ -145,4 +139,13 @@ func FlushIfNeeded(db *sql.DB, cfg *SlurploadConfig, metrics *SlurploadMetrics) 
 		return
 	}
 	log.Printf("ETL flush completed (%d staged rows flushed)", count)
+}
+
+func FlushNow(db *sql.DB) error {
+	_, err := db.Exec(`SELECT flush_raw_certificates($1)`, "worker")
+	if err != nil {
+		return fmt.Errorf("flush_raw_certificates: %w", err)
+	}
+
+	return nil
 }
