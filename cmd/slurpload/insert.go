@@ -5,12 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"math/rand"
-	"strings"
 	"time"
 
 	"github.com/chtzvt/certslurp/internal/extractor"
-	"golang.org/x/net/publicsuffix"
+	"github.com/lib/pq"
 )
 
 type InsertJob struct {
@@ -29,169 +27,122 @@ func insertBatch(
 		return nil
 	}
 
-	rootDomainIDs := make(map[string]int64)
-	for _, cert := range batch {
-		domains := append(cert.DNSNames, cert.CommonName)
-		for _, fqdn := range domains {
-			fqdn = strings.ToLower(strings.TrimSpace(fqdn))
-			fqdn = strings.TrimSuffix(fqdn, ".")
-			if fqdn == "" {
-				continue
-			}
-			root, err := publicsuffix.EffectiveTLDPlusOne(fqdn)
-			if err == nil && root != "" {
-				rootDomainIDs[root] = 0
-			}
-		}
+	// 1. Start a transaction for COPY and flush
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		metrics.IncFailed()
+		return fmt.Errorf("begin tx: %w", err)
 	}
-
-	for domain := range rootDomainIDs {
-		var id int64
-		err := db.QueryRowContext(ctx, `
-            INSERT INTO root_domains (domain) VALUES ($1)
-            ON CONFLICT (domain) DO UPDATE SET domain=EXCLUDED.domain
-            RETURNING id
-        `, domain).Scan(&id)
+	defer func() {
 		if err != nil {
-			log.Printf("root insert err (upsert outside tx): %v", err)
-			continue
-		}
-		rootDomainIDs[domain] = id
-	}
-
-	const maxRetries = 3
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		tx, err := db.BeginTx(ctx, nil)
-		if err != nil {
-			log.Printf("batch tx begin error: %v", err)
-			metrics.IncFailed()
-			return err
-		}
-
-		batchFailed := false
-		pendingCache := make(map[string]int64)
-
-		for _, cert := range batch {
-			domains := append(cert.DNSNames, cert.CommonName)
-			for _, fqdn := range domains {
-				fqdn = strings.ToLower(strings.TrimSpace(fqdn))
-				fqdn = strings.TrimSuffix(fqdn, ".")
-				if fqdn == "" {
-					continue
-				}
-				root, err := publicsuffix.EffectiveTLDPlusOne(fqdn)
-				if err != nil {
-					continue
-				}
-				rootID, ok := rootDomainIDs[root]
-				if !ok {
-					continue
-				}
-
-				fqdnKey := fqdn + "|" + fmt.Sprint(rootID)
-				var subID int64
-
-				if cached, ok := fqdnCache.Get(fqdnKey); ok {
-					subID = cached.(int64)
-				} else if cached, ok := pendingCache[fqdnKey]; ok {
-					subID = cached
-				} else {
-					err = tx.QueryRowContext(ctx, `
-                        INSERT INTO subdomains (fqdn, root_domain_id) VALUES ($1, $2)
-                        ON CONFLICT (fqdn, root_domain_id) DO UPDATE SET fqdn=EXCLUDED.fqdn
-                        RETURNING id
-                    `, fqdn, rootID).Scan(&subID)
-					if err != nil {
-						if err == sql.ErrNoRows || strings.Contains(err.Error(), "no rows in result set") {
-							err = tx.QueryRowContext(ctx, `
-                                SELECT id FROM subdomains WHERE fqdn = $1 AND root_domain_id = $2
-                            `, fqdn, rootID).Scan(&subID)
-						} else {
-							log.Printf("subdomain upsert/select err: %v", err)
-							batchFailed = true
-							break
-						}
-					}
-					pendingCache[fqdnKey] = subID
-				}
-
-				var certID int64
-				err = tx.QueryRowContext(ctx, `
-                    INSERT INTO certificates (
-                        not_before, not_after, cn, organizational_unit, organization, locality,
-                        province, country, street_address, postal_code,
-                        email_addresses, ip_addresses, uris, subject, entry_number
-                    )
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-                    ON CONFLICT (subject, not_before, not_after)
-                        DO NOTHING
-                    RETURNING id
-                `,
-					cert.NotBefore, cert.NotAfter, cert.CommonName, pqStringArray(cert.OrganizationalUnit),
-					pqStringArray(cert.Organization), pqStringArray(cert.Locality), pqStringArray(cert.Province),
-					pqStringArray(cert.Country), pqStringArray(cert.StreetAddress), pqStringArray(cert.PostalCode),
-					pqStringArray(cert.EmailAddresses), pqStringArray(cert.IPAddresses),
-					pqStringArray(cert.URIs), cert.Subject, cert.LogIndex,
-				).Scan(&certID)
-				if err != nil {
-					if err == sql.ErrNoRows || strings.Contains(err.Error(), "no rows in result set") {
-						err = tx.QueryRowContext(ctx, `
-                            SELECT id FROM certificates
-                            WHERE subject = $1 AND not_before = $2 AND not_after = $3
-                        `, cert.Subject, cert.NotBefore, cert.NotAfter).Scan(&certID)
-					}
-				}
-				if err != nil {
-					log.Printf("cert upsert/select err: %v", err)
-					batchFailed = true
-					break
-				}
-
-				_, err = tx.ExecContext(ctx, `
-                    INSERT INTO subdomain_certificates (subdomain_id, certificate_id, first_seen, last_seen)
-                    VALUES ($1, $2, $3, $3)
-                    ON CONFLICT (subdomain_id, certificate_id) DO UPDATE
-                    SET last_seen = GREATEST(subdomain_certificates.last_seen, $3)
-                `, subID, certID, time.Now())
-				if err != nil {
-					log.Printf("link err: %v", err)
-					batchFailed = true
-					break
-				}
-				if logStatEvery > 0 {
-					n := metrics.IncProcessed()
-					if n%logStatEvery == 0 {
-						log.Printf("[progress] %s", metrics)
-					}
-				}
-			}
-			if batchFailed {
-				break
-			}
-		}
-
-		if batchFailed {
 			_ = tx.Rollback()
-			if attempt < maxRetries {
-				log.Printf("Deadlock detected during batch, retrying (%d/%d)", attempt, maxRetries)
-				time.Sleep(time.Duration(100+rand.Intn(500)) * time.Millisecond)
-				continue
-			} else {
-				log.Printf("Batch failed after %d attempts due to repeated deadlocks or errors", maxRetries)
-				metrics.IncFailed()
-			}
-		} else {
-			err = tx.Commit()
-			if err != nil {
-				log.Printf("batch tx commit error: %v", err)
-				metrics.IncFailed()
-			} else {
-				for k, v := range pendingCache {
-					fqdnCache.Add(k, v)
-				}
-			}
 		}
-		break
+	}()
+
+	// 2. Prepare COPY statement
+	stmt, err := tx.Prepare(pq.CopyIn(
+		"raw_certificates",
+		"cert_type", "common_name", "email_addresses", "organizational_unit", "organization",
+		"locality", "province", "country", "street_address", "postal_code",
+		"dns_names", "fqdn", "ip_addresses", "uris", "subject", "issuer", "serial_number",
+		"not_before", "not_after", "log_index", "log_timestamp",
+	))
+	if err != nil {
+		return fmt.Errorf("prepare COPY: %w", err)
 	}
+
+	// 3. Write all batch rows
+	for _, cert := range batch {
+		_, err := stmt.Exec(
+			cert.Type, cert.CommonName, pqStringArray(cert.EmailAddresses), pqStringArray(cert.OrganizationalUnit),
+			pqStringArray(cert.Organization), pqStringArray(cert.Locality), pqStringArray(cert.Province),
+			pqStringArray(cert.Country), pqStringArray(cert.StreetAddress), pqStringArray(cert.PostalCode),
+			pqStringArray(cert.DNSNames), cert.CommonName, // 'fqdn' defaults to CommonName here
+			pqStringArray(cert.IPAddresses), pqStringArray(cert.URIs),
+			cert.Subject, cert.Issuer, cert.SerialNumber,
+			cert.NotBefore, cert.NotAfter, cert.LogIndex, cert.LogTimestamp,
+		)
+		if err != nil {
+			return fmt.Errorf("COPY exec: %w", err)
+		}
+	}
+	_, err = stmt.Exec()
+	if err != nil {
+		return fmt.Errorf("COPY exec flush: %w", err)
+	}
+	if err := stmt.Close(); err != nil {
+		return fmt.Errorf("COPY close: %w", err)
+	}
+
+	// 4. Call flush function for this batch (let DB handle normalization)
+	_, err = tx.Exec(`SELECT flush_raw_certificates($1)`, "worker")
+	if err != nil {
+		return fmt.Errorf("flush_raw_certificates: %w", err)
+	}
+
+	// 5. Commit
+	if err := tx.Commit(); err != nil {
+		metrics.IncFailed()
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	if logStatEvery > 0 {
+		n := metrics.IncProcessed()
+		if n%logStatEvery == 0 {
+			log.Printf("[progress] %s", metrics)
+		}
+	}
+
+	metrics.IncProcessed()
 	return nil
+}
+
+// Trigger ETL flush every FlushInterval or after FlushThreshold raw_certificates are loaded.
+func RunFlusher(ctx context.Context, db *sql.DB, cfg *SlurploadConfig, metrics *SlurploadMetrics) {
+	ticker := time.NewTicker(cfg.Processing.FlushInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			FlushIfNeeded(db, cfg, metrics)
+		}
+	}
+}
+
+// Only flush if there are enough staged rows.
+func FlushIfNeeded(db *sql.DB, cfg *SlurploadConfig, metrics *SlurploadMetrics) {
+	var lastProcessedID int64
+	err := db.QueryRow("SELECT last_processed_id FROM etl_progress WHERE id=1").Scan(&lastProcessedID)
+	if err == sql.ErrNoRows {
+		lastProcessedID = 0
+	} else if err != nil {
+		log.Printf("error reading checkpoint: %v", err)
+		return
+	}
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM raw_certificates WHERE id > $1", lastProcessedID).Scan(&count)
+	if err != nil {
+		log.Printf("error checking for more work: %v", err)
+		return
+	}
+
+	if count < int(cfg.Processing.FlushThreshold) {
+		// Not enough to flush yet
+		return
+	}
+
+	_, err = db.Exec(
+		"SELECT flush_raw_certificates($1, $2, $3)",
+		"batch",
+		cfg.Processing.FlushLimit,
+		lastProcessedID,
+	)
+	if err != nil {
+		log.Printf("error calling flush_raw_certificates: %v", err)
+		return
+	}
+	log.Printf("ETL flush completed (%d staged rows flushed)", count)
 }

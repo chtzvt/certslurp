@@ -84,11 +84,6 @@ func main() {
 			}
 			defer db.Close()
 
-			fqdnCache, err = initFQDNLRUCache(cfg.Database.CacheSize)
-			if err != nil {
-				return err
-			}
-
 			reader, err := getReader(archivePath, useGzip, useBzip2)
 			if err != nil {
 				return err
@@ -106,6 +101,8 @@ func main() {
 				wg.Add(1)
 				go fileWorker(ctx, db, jobs, cfg.Database.BatchSize, &wg, cfg.Metrics.LogStatEvery, metrics, "", watcherCfg)
 			}
+
+			go RunFlusher(ctx, db, cfg, metrics)
 
 			// Save stdin/archive to temp file for file-based batching
 			tmp, err := os.CreateTemp("", "slurpload-*.jsonl")
@@ -142,11 +139,6 @@ func main() {
 			}
 			defer db.Close()
 
-			fqdnCache, err = initFQDNLRUCache(cfg.Database.CacheSize)
-			if err != nil {
-				return err
-			}
-
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			jobs := make(chan InsertJob, 32*cfg.Database.MaxConns)
@@ -163,6 +155,8 @@ func main() {
 				wg.Add(1)
 				go fileWorker(ctx, db, jobs, cfg.Database.BatchSize, &wg, cfg.Metrics.LogStatEvery, metrics, cfg.Processing.DoneDir, watcherCfg)
 			}
+
+			go RunFlusher(ctx, db, cfg, metrics)
 
 			stop := make(chan struct{})
 
@@ -185,6 +179,7 @@ func main() {
 			}
 			close(jobs)
 			wg.Wait()
+			FlushIfNeeded(db, cfg, metrics)
 			log.Printf("Done. %s", metrics)
 			return nil
 		},

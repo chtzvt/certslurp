@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -82,6 +83,11 @@ func processFileJob(
 	case strings.HasSuffix(job.Path, ".gz"):
 		gr, err := gzip.NewReader(f)
 		if err != nil {
+			// Soft-skip: log and return nil if file is empty/corrupt gzip
+			if errors.Is(err, io.EOF) || err.Error() == "unexpected EOF" {
+				log.Printf("[warn] Skipping empty/corrupt gzip file: %s (%v)", job.Path, err)
+				return nil // NOT counted as failure
+			}
 			return fmt.Errorf("gzip reader: %w", err)
 		}
 		defer gr.Close()
@@ -89,6 +95,11 @@ func processFileJob(
 	case strings.HasSuffix(job.Path, ".bz2"):
 		br, err := bzip2.NewReader(f, nil)
 		if err != nil {
+			// Soft-skip: log and return nil if file is empty/corrupt bzip2
+			if errors.Is(err, io.EOF) || err.Error() == "unexpected EOF" {
+				log.Printf("[warn] Skipping empty/corrupt bzip2 file: %s (%v)", job.Path, err)
+				return nil // NOT counted as failure
+			}
 			return fmt.Errorf("bzip2 reader: %w", err)
 		}
 		reader = br
@@ -97,12 +108,18 @@ func processFileJob(
 	batch := make([]extractor.CertFieldsExtractorOutput, 0, batchSize)
 
 	for scanner.Scan() {
+		line := strings.TrimSpace(string(scanner.Bytes()))
+		if line == "" {
+			continue // skip blank lines
+		}
+
 		var cert extractor.CertFieldsExtractorOutput
-		if err := json.Unmarshal(scanner.Bytes(), &cert); err != nil {
+		if err := json.Unmarshal([]byte(line), &cert); err != nil {
 			log.Printf("[warn] bad json in %s: %v", job.Path, err)
 			metrics.IncFailed()
 			continue
 		}
+
 		batch = append(batch, cert)
 
 		if len(batch) >= batchSize {

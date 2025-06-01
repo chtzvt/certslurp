@@ -14,7 +14,6 @@ import (
 type DatabaseConfig struct {
 	MaxConns     int    `mapstructure:"max_conns"`
 	BatchSize    int    `mapstructure:"batch_size"`
-	CacheSize    int    `mapstructure:"cache_size"`
 	Host         string `mapstructure:"host"`
 	Port         int    `mapstructure:"port"`
 	Username     string `mapstructure:"username"`
@@ -33,6 +32,9 @@ type ProcessingConfig struct {
 	InboxPollInterval time.Duration `mapstructure:"inbox_poll"`
 	EnableWatcher     bool          `mapstructure:"enable_watcher"`
 	DoneDir           string        `mapstructure:"done_dir"`
+	FlushInterval     time.Duration `mapstructure:"flush_interval"`
+	FlushThreshold    int64         `mapstructure:"flush_thresh"`
+	FlushLimit        int64         `mapstructure:"flush_limit"`
 }
 
 type MetricsConfig struct {
@@ -61,9 +63,11 @@ func loadConfig(cfgFile string) (*SlurploadConfig, error) {
 
 	viper.SetDefault("database.max_conns", 8)
 	viper.SetDefault("database.batch_size", 100)
-	viper.SetDefault("database.cache_size", 250_000)
 	viper.SetDefault("metrics.log_stat_every", 1000)
 	viper.SetDefault("processing.inbox_poll", 2*time.Second)
+	viper.SetDefault("processing.flush_interval", 10*time.Second)
+	viper.SetDefault("processing.flush_thresh", 100_000)
+	viper.SetDefault("processing.flush_limit", 10_000_000)
 
 	viper.BindEnv("database.max_conns")
 	viper.BindEnv("database.batch_size")
