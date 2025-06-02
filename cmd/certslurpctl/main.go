@@ -21,6 +21,10 @@ func main() {
 		Use:   "certslurpctl",
 		Short: "certslurp control/admin CLI",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if len(os.Args) == 3 || (os.Args[1] != "secrets" && os.Args[2] != "worker") {
+				return nil
+			}
+
 			if apiURL == "" || apiToken == "" {
 				return fmt.Errorf("--api-url and --api-token are required")
 			}

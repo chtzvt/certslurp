@@ -56,16 +56,17 @@ func secretsGenClusterKeyCmd() *cobra.Command {
 		Use:   "genkey",
 		Short: "Generate a new base64-encoded cluster key",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if keyFile == "" {
-				return fmt.Errorf("missing required --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
-			}
-
 			rawKey, err := secrets.GenerateClusterKey()
 			if err != nil {
 				return fmt.Errorf("failed to generate key: %w", err)
 			}
 
 			encodedKey := base64.StdEncoding.EncodeToString(rawKey[:]) + "\n"
+
+			if keyFile == "" {
+				fmt.Printf("%s", string(encodedKey))
+				return nil
+			}
 
 			err = os.WriteFile(keyFile, []byte(encodedKey), 0o600)
 			if err != nil {
