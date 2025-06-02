@@ -74,7 +74,11 @@ func processFileJob(
 ) error {
 	f, err := os.Open(job.Path)
 	if err != nil {
-		return fmt.Errorf("open failed: %w", err)
+		if os.IsNotExist(err) {
+			return nil
+		}
+
+		return err
 	}
 	defer f.Close()
 

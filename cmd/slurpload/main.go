@@ -35,9 +35,6 @@ func main() {
 	rootCmd.PersistentFlags().Int("batch-size", 100, "Number of records to insert per transaction/batch")
 	viper.BindPFlag("database.batch_size", rootCmd.PersistentFlags().Lookup("batch-size"))
 
-	rootCmd.PersistentFlags().Int("cache-size", 250_000, "FQDN cache size (default: 250,000)")
-	viper.BindPFlag("database.cache_size", rootCmd.PersistentFlags().Lookup("cache-size"))
-
 	rootCmd.PersistentFlags().Int64("logstat", 1000, "Emit stats every N records processed (0 disables)")
 	viper.BindPFlag("metrics.log_stat_every", rootCmd.PersistentFlags().Lookup("logstat"))
 

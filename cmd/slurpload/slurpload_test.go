@@ -64,15 +64,11 @@ func setupTestDB(t *testing.T) *sql.DB {
 
 	require.NoError(t, runInitDB(db))
 
-	fqdnCache, err = initFQDNLRUCache(1000)
-	require.NoError(t, err)
-
 	return db
 }
 
 func teardownTestDB(t *testing.T, db *sql.DB) {
 	require.NoError(t, db.Close())
-	fqdnCache = nil
 }
 
 func compressGzip(data []byte) []byte {
@@ -226,8 +222,8 @@ func TestDBBootstrap(t *testing.T) {
 
 	// Check for expected tables
 	tables := []string{
-		"raw_certificates", "etl_flush_metrics", "root_domains", "subdomains",
-		"certificates", "subdomain_certificates",
+		"raw_certificates", "etl_flush_metrics", "etl_progress",
+		"certificates",
 	}
 	for _, table := range tables {
 		var exists bool
@@ -297,7 +293,7 @@ func TestInsertBatch(t *testing.T) {
 
 	// Query for inserted certificate
 	var cn string
-	err = db.QueryRow(`SELECT cn FROM certificates WHERE cn = $1`, "www.example.com").Scan(&cn)
+	err = db.QueryRow(`SELECT common_name FROM certificates WHERE common_name = $1`, "www.example.com").Scan(&cn)
 	require.NoError(t, err)
 	require.Equal(t, "www.example.com", cn)
 }
@@ -311,7 +307,7 @@ func TestETLFlush_Basic(t *testing.T) {
 	for i := 0; i < N; i++ {
 		_, err := db.Exec(`
 			INSERT INTO raw_certificates (
-				cert_type, common_name, dns_names, fqdn, not_before, not_after, subject, log_index
+				cert_type, common_name, dns_names, root_domain, not_before, not_after, subject, log_index
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8
 			)`,
@@ -339,7 +335,7 @@ func TestETLFlush_Basic(t *testing.T) {
 
 	// Assert records are now in certificates (not just raw_certificates)
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates WHERE cn LIKE 'flush-test-%'`).Scan(&count))
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates WHERE common_name LIKE 'flush-test-%'`).Scan(&count))
 	require.Equal(t, N, count, "Expected %d certs after ETL flush", N)
 
 	// Assert raw_certificates table is now empty for those rows
@@ -364,7 +360,7 @@ func TestRunFlusher_Interval(t *testing.T) {
 
 	// Insert a record
 	_, err := db.Exec(`
-		INSERT INTO raw_certificates (cert_type, common_name, dns_names, fqdn, not_before, not_after, subject, log_index)
+		INSERT INTO raw_certificates (cert_type, common_name, dns_names, root_domain, not_before, not_after, subject, log_index)
 		VALUES ('cert', 'interval-flush.com', $1, 'interval-flush.com', $2, $3, 'CN=interval-flush.com', 555)`,
 		pq.Array([]string{"interval-flush.com"}),
 		time.Now().Add(-24*time.Hour),
@@ -382,7 +378,7 @@ func TestRunFlusher_Interval(t *testing.T) {
 
 	// Check it was flushed
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates WHERE cn = 'interval-flush.com'`).Scan(&count))
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM certificates WHERE common_name = 'interval-flush.com'`).Scan(&count))
 	require.Equal(t, 1, count)
 }
 
@@ -397,7 +393,7 @@ func TestETLFlush_BatchFlushLimit(t *testing.T) {
 	for i := 0; i < N; i++ {
 		_, err := db.Exec(`
 			INSERT INTO raw_certificates (
-				cert_type, common_name, dns_names, fqdn, not_before, not_after, subject, log_index
+				cert_type, common_name, dns_names, root_domain, not_before, not_after, subject, log_index
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8
 			)`,
@@ -425,7 +421,7 @@ func TestETLFlush_BatchFlushLimit(t *testing.T) {
 
 	var processed, left int
 	require.NoError(t, db.QueryRow(
-		`SELECT COUNT(*) FROM certificates WHERE cn LIKE 'limit-test-%'`,
+		`SELECT COUNT(*) FROM certificates WHERE common_name LIKE 'limit-test-%'`,
 	).Scan(&processed))
 	require.Equal(t, flushLimit, processed, "should process only flushLimit rows")
 
@@ -438,7 +434,7 @@ func TestETLFlush_BatchFlushLimit(t *testing.T) {
 	FlushIfNeeded(db, cfg, metrics)
 
 	require.NoError(t, db.QueryRow(
-		`SELECT COUNT(*) FROM certificates WHERE cn LIKE 'limit-test-%'`,
+		`SELECT COUNT(*) FROM certificates WHERE common_name LIKE 'limit-test-%'`,
 	).Scan(&processed))
 	require.Equal(t, N, processed, "should have processed all rows after two flushes")
 
@@ -459,7 +455,7 @@ func TestETLFlush_MetricsTable(t *testing.T) {
 	for i := 0; i < N; i++ {
 		_, err := db.Exec(`
 			INSERT INTO raw_certificates (
-				cert_type, common_name, dns_names, fqdn, not_before, not_after, subject, log_index
+				cert_type, common_name, dns_names, root_domain, not_before, not_after, subject, log_index
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8
 			)`,

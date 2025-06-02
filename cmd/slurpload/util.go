@@ -7,15 +7,8 @@ import (
 	"os"
 
 	"github.com/dsnet/compress/bzip2"
-	lru "github.com/hashicorp/golang-lru"
 	"github.com/lib/pq"
 )
-
-var fqdnCache *lru.Cache
-
-func initFQDNLRUCache(size int) (*lru.Cache, error) {
-	return lru.New(size)
-}
 
 func pqStringArray(ss []string) interface{} {
 	if ss == nil {

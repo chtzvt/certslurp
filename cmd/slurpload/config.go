@@ -71,7 +71,6 @@ func loadConfig(cfgFile string) (*SlurploadConfig, error) {
 
 	viper.BindEnv("database.max_conns")
 	viper.BindEnv("database.batch_size")
-	viper.BindEnv("database.cache_size")
 	viper.BindEnv("database.host")
 	viper.BindEnv("database.port")
 	viper.BindEnv("database.username")

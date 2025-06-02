@@ -68,9 +68,9 @@ func StartInboxWatcher(cfg *WatcherConfig, jobs chan<- InsertJob, stop <-chan st
 					continue
 				}
 
+				cfg.AddSeen(file)
 				log.Printf("Watcher: queueing file %s for loading", file)
 				jobs <- InsertJob{Name: filepath.Base(file), Path: file}
-				cfg.AddSeen(file)
 				// File will be deleted/moved by batcher/worker after DB insert completes
 			}
 			time.Sleep(cfg.PollInterval)

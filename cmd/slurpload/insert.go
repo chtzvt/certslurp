@@ -9,6 +9,7 @@ import (
 
 	"github.com/chtzvt/certslurp/internal/extractor"
 	"github.com/lib/pq"
+	"golang.org/x/net/publicsuffix"
 )
 
 type InsertJob struct {
@@ -44,7 +45,7 @@ func insertBatch(
 		"raw_certificates",
 		"cert_type", "common_name", "email_addresses", "organizational_unit", "organization",
 		"locality", "province", "country", "street_address", "postal_code",
-		"dns_names", "fqdn", "ip_addresses", "uris", "subject", "issuer", "serial_number",
+		"dns_names", "root_domain", "ip_addresses", "uris", "subject", "issuer", "serial_number",
 		"not_before", "not_after", "log_index", "log_timestamp",
 	))
 	if err != nil {
@@ -53,11 +54,16 @@ func insertBatch(
 
 	// 3. Write all batch rows
 	for _, cert := range batch {
-		_, err := stmt.Exec(
+		rootDomain, err := publicsuffix.EffectiveTLDPlusOne(cert.CommonName)
+		if err != nil {
+			rootDomain = cert.CommonName
+		}
+
+		_, err = stmt.Exec(
 			cert.Type, cert.CommonName, pqStringArray(cert.EmailAddresses), pqStringArray(cert.OrganizationalUnit),
 			pqStringArray(cert.Organization), pqStringArray(cert.Locality), pqStringArray(cert.Province),
 			pqStringArray(cert.Country), pqStringArray(cert.StreetAddress), pqStringArray(cert.PostalCode),
-			pqStringArray(cert.DNSNames), cert.CommonName, // 'fqdn' defaults to CommonName here
+			pqStringArray(cert.DNSNames), rootDomain,
 			pqStringArray(cert.IPAddresses), pqStringArray(cert.URIs),
 			cert.Subject, cert.Issuer, cert.SerialNumber,
 			cert.NotBefore, cert.NotAfter, cert.LogIndex, cert.LogTimestamp,
