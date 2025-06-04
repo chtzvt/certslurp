@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"sync"
@@ -53,7 +54,7 @@ func NewWorker(cl cluster.Cluster, id string, logger *log.Logger) *Worker {
 		Cluster:     cl,
 		MaxParallel: 4, // configurable
 		BatchSize:   8,
-		PollPeriod:  1 * time.Second,
+		PollPeriod:  5 * time.Second,
 		LeaseSecs:   60,
 		Logger:      logger,
 		stopCh:      make(chan struct{}),
@@ -80,6 +81,8 @@ func (w *Worker) Run(ctx context.Context) error {
 
 	go w.heartbeatLoop(ctx)
 	go w.metricsLoop(ctx)
+
+	time.Sleep(jitterDuration() + time.Duration(rand.Int63n(int64(w.PollPeriod))))
 
 	sem := make(chan struct{}, w.MaxParallel)
 	for {
@@ -133,7 +136,7 @@ func (w *Worker) Run(ctx context.Context) error {
 				}(ref.JobID, ref.ShardID)
 			}
 			// Only wait poll period after all launches, to avoid hammering etcd
-			time.Sleep(jitterDuration() + w.PollPeriod)
+			time.Sleep(jitterDuration() + w.PollPeriod + time.Duration(rand.Int63n(int64(w.PollPeriod))))
 		}
 	}
 }

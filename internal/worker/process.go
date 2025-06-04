@@ -34,6 +34,7 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 		w.Logger.Printf("get shard status failed: %v", err)
 		return
 	}
+
 	jobInfo, err := w.Cluster.GetJob(ctx, jobID)
 	if err != nil {
 		w.Logger.Printf("failed to get job spec: %v", err)
@@ -64,6 +65,7 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 		for {
 			select {
 			case <-ticker.C:
+				maybeSleep()
 				err := w.Cluster.RenewShardLease(ctx, jobID, shardID, w.ID)
 				if err != nil {
 					w.Logger.Printf("failed to renew lease for shard %d: %v", shardID, err)

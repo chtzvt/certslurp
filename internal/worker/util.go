@@ -19,6 +19,12 @@ func jitterDuration() time.Duration {
 	return min + time.Duration(rand.Int63n(int64(max-min)))
 }
 
+func maybeSleep() {
+	if rand.Float64() < 0.05 { // 5% of the time
+		time.Sleep(jitterDuration())
+	}
+}
+
 func httpTransportForShard(cfg job.FetchConfig) (*http.Transport, time.Duration) {
 	entries := cfg.IndexEnd - cfg.IndexStart
 	if entries < 0 {
@@ -75,15 +81,15 @@ func httpTransportForShard(cfg job.FetchConfig) (*http.Transport, time.Duration)
 }
 
 func (w *Worker) heartbeatLoop(ctx context.Context) {
-	ticker := time.NewTicker(jitterDuration() + 5*time.Second)
-	defer ticker.Stop()
+	base := jitterDuration() + 10*time.Second
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-w.stopCh:
 			return
-		case <-ticker.C:
+		case <-time.After(base + jitterDuration()):
 			if err := w.Cluster.HeartbeatWorker(ctx, w.ID); err != nil {
 				w.Logger.Printf("heartbeat failed: %v", err)
 			}
@@ -92,15 +98,15 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 }
 
 func (w *Worker) metricsLoop(ctx context.Context) {
-	ticker := time.NewTicker(jitterDuration() + 10*time.Second)
-	defer ticker.Stop()
+	base := jitterDuration() + 10*time.Second
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-w.stopCh:
 			return
-		case <-ticker.C:
+		case <-time.After(base + jitterDuration()):
 			if err := w.Cluster.SendMetrics(ctx, w.ID, w.Metrics); err != nil {
 				w.Logger.Printf("SendMetrics failed: %v", err)
 			}
@@ -119,6 +125,7 @@ func (w *Worker) checkJobCancelled(ctx context.Context, jobID string) (bool, err
 
 // findAllClaimableShards returns up to batchSize claimable shards across all jobs.
 func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []ShardRef {
+	maybeSleep()
 	jobs, err := w.Cluster.ListJobs(ctx)
 	if err != nil {
 		w.Logger.Printf("error listing jobs: %v", err)
@@ -137,6 +144,7 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 	}
 
 	for _, job := range jobs {
+		maybeSleep()
 		shardCount, err := w.Cluster.GetShardCount(ctx, job.ID)
 		if err != nil || shardCount == 0 {
 			continue
@@ -148,6 +156,7 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 		for {
 			// Fallback: scan ALL
 			if shardCount < windowSize || emptyWindows >= maxEmptyWindows {
+				maybeSleep()
 				window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, 0, shardCount)
 				if len(claimable) < batchSize {
 					var stuck []int
@@ -174,6 +183,7 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 
 			// Standard random window
 			offset := rand.Intn(shardCount - windowSize + 1)
+			maybeSleep()
 			window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, offset, offset+windowSize)
 			if err != nil {
 				break
@@ -237,7 +247,7 @@ func (w *Worker) tryAssignShardWithRetry(ctx context.Context, jobID string, shar
 		if strings.Contains(msg, "assignment race") ||
 			strings.Contains(msg, "already assigned") ||
 			strings.Contains(msg, "in backoff") {
-			backoff := jitterDuration() + time.Duration(50+rand.Intn(150))*time.Millisecond
+			backoff := w.PollPeriod + jitterDuration()
 			time.Sleep(backoff)
 			lastErr = err
 			continue
