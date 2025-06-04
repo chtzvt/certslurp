@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -65,4 +66,17 @@ func cmdContext() context.Context {
 		cancel()
 	}()
 	return ctx
+}
+
+func jitterDuration() time.Duration {
+	min := 100 * time.Millisecond
+	max := 2 * time.Second
+
+	return min + time.Duration(rand.Int63n(int64(max-min)))
+}
+
+func maybeSleep() {
+	if rand.Float64() < 0.05 { // 5% of the time
+		time.Sleep(jitterDuration())
+	}
 }

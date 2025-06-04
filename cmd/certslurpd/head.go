@@ -60,14 +60,14 @@ func isShardEffectivelyDone(shard cluster.ShardAssignmentStatus) bool {
 }
 
 func headMonitorLoop(ctx context.Context, cl cluster.Cluster, pollInterval time.Duration, logger *log.Logger) {
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
+	basePoll := jitterDuration() + pollInterval
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-time.After(basePoll + jitterDuration()):
+			maybeSleep()
 			jobs, err := cl.ListJobs(ctx)
 			if err != nil {
 				logger.Printf("Error listing jobs: %v", err)
@@ -79,6 +79,7 @@ func headMonitorLoop(ctx context.Context, cl cluster.Cluster, pollInterval time.
 					continue
 				}
 
+				maybeSleep()
 				shardMap, err := cl.GetShardAssignments(ctx, job.ID)
 				if err != nil {
 					logger.Printf("Error getting shards for job %s: %v", job.ID, err)
@@ -102,6 +103,7 @@ func headMonitorLoop(ctx context.Context, cl cluster.Cluster, pollInterval time.
 				}
 
 				if allDone {
+					maybeSleep()
 					if err := cl.MarkJobCompleted(ctx, job.ID); err != nil {
 						logger.Printf("Failed to mark job %s completed: %v", job.ID, err)
 					} else {
