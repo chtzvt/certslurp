@@ -14,14 +14,14 @@ import (
 
 func jitterDuration() time.Duration {
 	min := 100 * time.Millisecond
-	max := 2 * time.Second
+	max := 3 * time.Second
 
 	return min + time.Duration(rand.Int63n(int64(max-min)))
 }
 
 func maybeSleep() {
 	if rand.Float64() < 0.05 { // 5% of the time
-		time.Sleep(jitterDuration())
+		time.Sleep(jitterDuration() + 1*time.Second)
 	}
 }
 
@@ -90,6 +90,7 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 		case <-w.stopCh:
 			return
 		case <-time.After(base + jitterDuration()):
+			maybeSleep()
 			if err := w.Cluster.HeartbeatWorker(ctx, w.ID); err != nil {
 				w.Logger.Printf("heartbeat failed: %v", err)
 			}
@@ -107,6 +108,7 @@ func (w *Worker) metricsLoop(ctx context.Context) {
 		case <-w.stopCh:
 			return
 		case <-time.After(base + jitterDuration()):
+			maybeSleep()
 			if err := w.Cluster.SendMetrics(ctx, w.ID, w.Metrics); err != nil {
 				w.Logger.Printf("SendMetrics failed: %v", err)
 			}
@@ -209,6 +211,7 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 			if !lastWindowScanned && shardCount > windowSize {
 				lastWindowScanned = true
 				offset := shardCount - windowSize
+				maybeSleep()
 				window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, offset, shardCount)
 				if err == nil {
 					for sID, stat := range window {

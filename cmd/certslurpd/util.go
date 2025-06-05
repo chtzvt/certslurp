@@ -49,6 +49,9 @@ func newCluster(cfg *config.ClusterConfig) (cluster.Cluster, error) {
 		KeychainFile: keychainFile,
 	}
 
+	maybeSleep()
+	time.Sleep(jitterDuration())
+
 	cl, err := cluster.NewEtcdCluster(etcdCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to etcd: %w", err)
@@ -70,7 +73,7 @@ func cmdContext() context.Context {
 
 func jitterDuration() time.Duration {
 	min := 100 * time.Millisecond
-	max := 2 * time.Second
+	max := 3 * time.Second
 
 	return min + time.Duration(rand.Int63n(int64(max-min)))
 }

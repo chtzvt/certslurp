@@ -41,6 +41,7 @@ func runWorker(cfg *config.ClusterConfig) error {
 			return err
 		}
 	} else {
+		maybeSleep()
 		logger.Println("Registering worker and waiting for admin to approve secrets...")
 		cl.Secrets().RegisterAndWaitForClusterKey(ctx)
 		logger.Println("Registration complete. Starting...")

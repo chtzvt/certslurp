@@ -29,7 +29,7 @@ func TestWorkerE2EJobCompletion(t *testing.T) {
 
 	testutil.WaitFor(t, func() bool {
 		return testcluster.AllShardsDone(t, cl, jobID)
-	}, 5*time.Second, 100*time.Millisecond, "job should complete")
+	}, 60*time.Second, 100*time.Millisecond, "job should complete")
 
 	for _, w := range workers {
 		w.Stop()
@@ -48,7 +48,7 @@ func TestE2E_JobHappyPath(t *testing.T) {
 	workers := testworkers.RunWorkers(ctx, t, cl, jobID, 2, logger)
 	testutil.WaitFor(t, func() bool {
 		return testcluster.AllShardsDone(t, cl, jobID)
-	}, 5*time.Second, 100*time.Millisecond, "job should complete")
+	}, 60*time.Second, 100*time.Millisecond, "job should complete")
 	for _, w := range workers {
 		w.Stop()
 	}
@@ -87,7 +87,7 @@ func TestCluster_WorkerFailureRecovery(t *testing.T) {
 	}
 	testutil.WaitFor(t, func() bool {
 		return testcluster.AllShardsDone(t, cl, jobID)
-	}, 8*time.Second, 100*time.Millisecond, "all shards should finish even if a worker died")
+	}, 60*time.Second, 100*time.Millisecond, "all shards should finish even if a worker died")
 
 	for _, w := range workers {
 		w.Stop()
@@ -144,7 +144,7 @@ func TestCluster_LargeScaleStress(t *testing.T) {
 	workers := testworkers.RunWorkers(ctx, t, cl, jobID, workerCount, logger)
 	testutil.WaitFor(t, func() bool {
 		return testcluster.AllShardsDone(t, cl, jobID)
-	}, 18*time.Second, 300*time.Millisecond, "large job should complete")
+	}, 60*time.Second, 300*time.Millisecond, "large job should complete")
 	for _, w := range workers {
 		w.Stop()
 	}

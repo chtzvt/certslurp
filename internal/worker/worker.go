@@ -72,6 +72,8 @@ func (w *Worker) Run(ctx context.Context) error {
 		hostName = "unknown.host"
 	}
 
+	maybeSleep()
+	time.Sleep(jitterDuration())
 	_, err = w.Cluster.RegisterWorker(ctx, cluster.WorkerInfo{ID: w.ID, Host: hostName})
 	if err != nil {
 		return err

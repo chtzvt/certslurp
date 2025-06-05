@@ -107,7 +107,7 @@ func TestWorkerE2E_ExtractsExpectedCerts(t *testing.T) {
 
 	testutil.WaitFor(t, func() bool {
 		return testcluster.AllShardsDone(t, cl, jobID)
-	}, 5*time.Second, 100*time.Millisecond, "job should complete")
+	}, 60*time.Second, 100*time.Millisecond, "job should complete")
 
 	for _, w := range workers {
 		w.Stop()

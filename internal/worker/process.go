@@ -29,18 +29,21 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 		w.Metrics.AddProcessingTime(time.Since(start))
 	}()
 
+	maybeSleep()
 	status, err := w.Cluster.GetShardStatus(ctx, jobID, shardID)
 	if err != nil {
 		w.Logger.Printf("get shard status failed: %v", err)
 		return
 	}
 
+	maybeSleep()
 	jobInfo, err := w.Cluster.GetJob(ctx, jobID)
 	if err != nil {
 		w.Logger.Printf("failed to get job spec: %v", err)
 		return
 	}
 
+	maybeSleep()
 	cancelled, err := w.checkJobCancelled(ctx, jobID)
 	if err != nil {
 		w.Logger.Printf("job cancelled check failed: %v", err)
@@ -103,6 +106,7 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 	}
 
 	manifest := cluster.ShardManifest{}
+	maybeSleep()
 	if err := w.Cluster.ReportShardDone(ctx, jobID, shardID, manifest); err != nil {
 		w.Logger.Printf("report done failed: %v", err)
 		return

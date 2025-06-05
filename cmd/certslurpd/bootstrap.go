@@ -16,8 +16,11 @@ func selfBootstrap(ctx context.Context, cl cluster.Cluster, cfg *config.ClusterC
 	registrationDone := make(chan struct{})
 	registrationFailed := make(chan error, 2)
 
+	maybeSleep()
+	time.Sleep(jitterDuration())
+
 	go func() {
-		if err := cl.Secrets().RegisterAndWaitForClusterKey(context.Background()); err != nil {
+		if err := cl.Secrets().RegisterAndWaitForClusterKey(ctx); err != nil {
 			registrationFailed <- err
 			return
 		}
@@ -34,6 +37,7 @@ func selfBootstrap(ctx context.Context, cl cluster.Cluster, cfg *config.ClusterC
 			approved = true
 			break
 		default:
+			maybeSleep()
 			pending, err := cl.Secrets().ListPendingRegistrations(ctx)
 			if err != nil {
 				logger.Printf("Self-bootstrap: could not query pending registrations: %v", err)
@@ -58,7 +62,7 @@ func selfBootstrap(ctx context.Context, cl cluster.Cluster, cfg *config.ClusterC
 done:
 
 	if !approved {
-		return fmt.Errorf("Self-bootstrap failed to register after 3s")
+		return fmt.Errorf("Self-bootstrap failed to register")
 	}
 
 	return nil
