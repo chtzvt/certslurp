@@ -133,6 +133,8 @@ DECLARE
     v_notes           TEXT := '';
     v_last_id         BIGINT := 0;
 BEGIN
+    -- Ensure only one ETL flush runs at a time (prevents deadlocks)
+    PERFORM pg_advisory_lock(13371337);
     -- Select batch to process
     CREATE TEMP TABLE tmp_batch AS
     SELECT *
