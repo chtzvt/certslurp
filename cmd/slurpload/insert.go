@@ -87,8 +87,8 @@ func insertBatch(
 	}
 
 	if logStatEvery > 0 {
-		n := metrics.IncProcessed()
-		if n%logStatEvery == 0 {
+		processed, _, _ := metrics.Snapshot()
+		if processed%logStatEvery == 0 {
 			log.Printf("[progress] %s", metrics)
 		}
 	}

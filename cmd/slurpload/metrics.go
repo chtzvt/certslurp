@@ -34,7 +34,7 @@ func (m *SlurploadMetrics) Snapshot() (processed, failed int64, elapsed time.Dur
 
 func (m *SlurploadMetrics) String() string {
 	processed, failed, elapsed := m.Snapshot()
-	return fmt.Sprintf("processed=%d failed=%d elapsed=%v", processed, failed, elapsed)
+	return fmt.Sprintf("batches processed=%d / batches failed=%d / time elapsed=%v", processed, failed, elapsed)
 }
 
 // Helpers for atomic increments
