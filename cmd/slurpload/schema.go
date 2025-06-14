@@ -133,6 +133,8 @@ DECLARE
     v_notes           TEXT := '';
     v_last_id         BIGINT := 0;
 BEGIN
+    SET LOCAL synchronous_commit = off;
+    
     -- Ensure only one ETL flush runs at a time (prevents deadlocks)
     PERFORM pg_advisory_lock(13371337);
     -- Select batch to process
@@ -222,11 +224,10 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET last_processed_id = EXCLUDED.last_processed_id;
 
     -- Remove processed rows
-    DELETE FROM raw_certificates WHERE id IN (SELECT id FROM tmp_batch);
+    DELETE FROM raw_certificates WHERE id <= v_last_id;
 
     DROP TABLE IF EXISTS tmp_batch;
 
-    ANALYZE certificates;
 EXCEPTION WHEN OTHERS THEN
     v_status := 'failed';
     v_ended_at := now();
