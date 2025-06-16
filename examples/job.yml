@@ -3,25 +3,22 @@ note: Example CT log job
 log_uri: https://ct.googleapis.com/logs/us1/argon2025h1/
 options:
   fetch:
-    fetch_size: 256
-    fetch_workers: 4
+    fetch_size: 128
+    fetch_workers: 1
     index_start: 101000000
     index_end: 103000000
 
-  match:
-    domain_exclude: "(^|\\.)flowers-to-the-world\\.com$|woodpecker\\.testing\\.letsencrypt\\."
-
   output:
-    chunk_records: 100
+    chunk_records: 512
 
     extractor: cert_fields
     extractor_options:
-      cert_fields: "*,!serial"
-      log_fields: log_index
+      cert_fields: "*"
+      log_fields: "*"
 
     transformer: jsonl
 
-    sink: "http"
+    sink: "disk"
     sink_options:
-      endpoint: "http://localhost:42069/upload"
-      compression: "gzip"
+      path: "/Users/charlton/Desktop/certslurp_demo/out"
+      compression: "zstd"
