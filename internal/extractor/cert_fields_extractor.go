@@ -132,7 +132,7 @@ var certFuncs = map[string]CertFieldsExtractorCertFunc{
 		return "iss", cert.Issuer.CommonName, nil
 	},
 	"serial": func(cert *x509.Certificate) (string, interface{}, error) {
-		return "sn", cert.SerialNumber.String(), nil
+		return "sn", cert.SerialNumber.Text(16), nil
 	},
 	"not_before": func(cert *x509.Certificate) (string, interface{}, error) {
 		return "nbf", cert.NotBefore, nil
