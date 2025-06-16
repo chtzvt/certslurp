@@ -48,5 +48,10 @@ func runWorker(cfg *config.ClusterConfig) error {
 	}
 
 	w := worker.NewWorker(cl, cfg.Node.ID, logger)
+
+	w.MaxParallel = cfg.Worker.Parallelism
+	w.BatchSize = cfg.Worker.BatchSize
+	w.PollPeriod = cfg.Worker.PollPeriod
+
 	return w.Run(cmdContext())
 }

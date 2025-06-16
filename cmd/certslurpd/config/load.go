@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -25,11 +26,17 @@ func LoadConfig(cfgFile string) (*ClusterConfig, error) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "__"))
 
 	viper.SetDefault("node.id", "")
+	viper.SetDefault("worker.parallelism", 4)
+	viper.SetDefault("worker.batch_size", 8)
+	viper.SetDefault("worker.poll_period", 5*time.Second)
 	viper.SetDefault("etcd.prefix", "/certslurp")
 	viper.SetDefault("api.listen_addr", ":8989")
 	viper.SetDefault("secrets.keychain_file", "")
 
 	viper.BindEnv("node.id")
+	viper.BindEnv("worker.parallelism")
+	viper.BindEnv("worker.batch_size")
+	viper.BindEnv("worker.poll_period")
 	viper.BindEnv("etcd.endpoints")
 	viper.BindEnv("etcd.username")
 	viper.BindEnv("etcd.password")
