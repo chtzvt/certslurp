@@ -67,17 +67,19 @@ func TestS3Sink_PutObject(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, store.Set(ctx, "AWS_ACCESS_KEY_ID", []byte("fake-access")))
-	require.NoError(t, store.Set(ctx, "AWS_SECRET_ACCESS_KEY", []byte("fake-secret")))
+	require.NoError(t, store.Set(ctx, "TEST_AWS_ACCESS_KEY_ID", []byte("fake-access")))
+	require.NoError(t, store.Set(ctx, "TEST_AWS_SECRET_ACCESS_KEY", []byte("fake-secret")))
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	mock := &mockPutObjectAPI{wg: wg}
 
 	opts := map[string]interface{}{
-		"bucket": "mybucket",
-		"region": "us-west-2",
-		"prefix": "prefix/",
+		"bucket":               "mybucket",
+		"region":               "us-west-2",
+		"prefix":               "prefix/",
+		"access_key_id_secret": "TEST_AWS_ACCESS_KEY_ID",
+		"access_key_secret":    "TEST_AWS_SECRET_ACCESS_KEY",
 	}
 
 	sinkIface, err := sink.NewS3Sink(opts, store)

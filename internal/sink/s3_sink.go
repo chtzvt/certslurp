@@ -13,14 +13,16 @@ import (
 )
 
 type S3Sink struct {
-	bucket           string
-	prefix           string
-	region           string
-	compression      string
-	secrets          *secrets.Store
-	endpoint         string
-	Client           PutObjectAPI // test only; nil in prod, set by test
-	disableChecksums bool
+	bucket             string
+	prefix             string
+	region             string
+	compression        string
+	accessKeyIDName    string
+	secretAccesKeyName string
+	secrets            *secrets.Store
+	endpoint           string
+	Client             PutObjectAPI // test only; nil in prod, set by test
+	disableChecksums   bool
 }
 
 // PutObjectAPI abstracts the S3 PutObject method (for testing)
@@ -32,7 +34,11 @@ func NewS3Sink(opts map[string]interface{}, secrets *secrets.Store) (Sink, error
 	bucket, _ := opts["bucket"].(string)
 	prefix, _ := opts["prefix"].(string)
 	region, _ := opts["region"].(string)
+	accessKeyIDName, _ := opts["access_key_id_secret"].(string)
+	secretAccesKeyName, _ := opts["access_key_secret"].(string)
+
 	compression, _ := opts["compression"].(string)
+
 	endpoint, _ := opts["endpoint"].(string)
 	baseEndpoint, _ := opts["base_endpoint"].(string) // support both for flexibility
 
@@ -47,13 +53,15 @@ func NewS3Sink(opts map[string]interface{}, secrets *secrets.Store) (Sink, error
 	}
 
 	return &S3Sink{
-		bucket:           bucket,
-		prefix:           prefix,
-		region:           region,
-		compression:      compression,
-		secrets:          secrets,
-		endpoint:         chooseEndpoint(endpoint, baseEndpoint),
-		disableChecksums: disableChecksums,
+		bucket:             bucket,
+		prefix:             prefix,
+		region:             region,
+		compression:        compression,
+		accessKeyIDName:    accessKeyIDName,
+		secretAccesKeyName: secretAccesKeyName,
+		secrets:            secrets,
+		endpoint:           chooseEndpoint(endpoint, baseEndpoint),
+		disableChecksums:   disableChecksums,
 	}, nil
 }
 
@@ -80,13 +88,13 @@ func toBool(val interface{}) bool {
 }
 
 func (s *S3Sink) Open(ctx context.Context, name string) (SinkWriter, error) {
-	accessKey, err := s.secrets.Get(ctx, "AWS_ACCESS_KEY_ID")
+	accessKey, err := s.secrets.Get(ctx, s.accessKeyIDName)
 	if err != nil {
-		return nil, fmt.Errorf("missing AWS_ACCESS_KEY_ID: %w", err)
+		return nil, fmt.Errorf("missing AWS Access Key ID credential '%s': %w", s.accessKeyIDName, err)
 	}
-	secretKey, err := s.secrets.Get(ctx, "AWS_SECRET_ACCESS_KEY")
+	secretKey, err := s.secrets.Get(ctx, s.secretAccesKeyName)
 	if err != nil {
-		return nil, fmt.Errorf("missing AWS_SECRET_ACCESS_KEY: %w", err)
+		return nil, fmt.Errorf("missing AWS Secret Access Key credential '%s': %w", s.secretAccesKeyName, err)
 	}
 	awsCfgOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(s.region),
