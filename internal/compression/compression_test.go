@@ -7,7 +7,35 @@ import (
 	"testing"
 
 	"github.com/dsnet/compress/bzip2"
+	"github.com/klauspost/compress/zstd"
 )
+
+func TestNewWriter_Zstd(t *testing.T) {
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, "zstd")
+	if err != nil {
+		t.Fatalf("NewWriter zstd: %v", err)
+	}
+	original := []byte("hello zstd world")
+	_, err = w.Write(original)
+	if err != nil {
+		t.Fatalf("Write zstd: %v", err)
+	}
+	w.Close()
+
+	// Try to decompress and verify
+	r, err := zstd.NewReader(&buf)
+	if err != nil {
+		t.Fatalf("zstd.NewReader: %v", err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll zstd: %v", err)
+	}
+	if string(out) != string(original) {
+		t.Errorf("zstd decompress mismatch: got %q, want %q", out, original)
+	}
+}
 
 func TestNewWriter_Gzip(t *testing.T) {
 	var buf bytes.Buffer

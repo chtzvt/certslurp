@@ -11,7 +11,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.8.0
 	github.com/google/certificate-transparency-go v1.3.1
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/golang-lru v1.0.2
+	github.com/klauspost/compress v1.17.11
 	github.com/lib/pq v1.10.9
 	github.com/moby/moby v28.2.1+incompatible
 	github.com/olekukonko/tablewriter v0.0.5
@@ -66,7 +66,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
-	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/mattn/go-runewidth v0.0.13 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect

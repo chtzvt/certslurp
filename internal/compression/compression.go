@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 
+	_ "embed"
+
 	"github.com/dsnet/compress/bzip2"
+	"github.com/klauspost/compress/zstd"
 )
 
 // NewWriter returns an io.WriteCloser that wraps w with the requested compression.
@@ -16,6 +19,8 @@ func NewWriter(w io.Writer, compression string) (io.WriteCloser, error) {
 		return gzip.NewWriter(w), nil
 	case "bzip2":
 		return bzip2.NewWriter(w, &bzip2.WriterConfig{Level: bzip2.BestCompression})
+	case "zstd":
+		return zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
 	case "", "none":
 		return nopWriteCloser{w}, nil
 	default:
