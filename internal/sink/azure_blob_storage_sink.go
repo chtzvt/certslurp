@@ -91,7 +91,7 @@ func (a *AzureBlobSink) Open(ctx context.Context, name string) (SinkWriter, erro
 	if err != nil {
 		return nil, fmt.Errorf("missing Azure Blob Storage access key '%s' in secrets: %w", a.accessKeyName, err)
 	}
-	cred, err := azblob.NewSharedKeyCredential(a.account, string(key))
+	cred, err := azblob.NewSharedKeyCredential(a.account, strings.TrimSpace(string(key)))
 	if err != nil {
 		return nil, fmt.Errorf("azure shared key credential error: %w", err)
 	}
