@@ -197,7 +197,7 @@ var precertFuncs = map[string]CertFieldsExtractorPrecertFunc{
 		return "iss", cert.TBSCertificate.Issuer.String(), nil
 	},
 	"serial": func(cert *ct.Precertificate) (string, interface{}, error) {
-		return "sn", cert.TBSCertificate.SerialNumber.String(), nil
+		return "sn", cert.TBSCertificate.SerialNumber.Text(16), nil
 	},
 	"not_before": func(cert *ct.Precertificate) (string, interface{}, error) {
 		return "nbf", cert.TBSCertificate.NotBefore, nil
