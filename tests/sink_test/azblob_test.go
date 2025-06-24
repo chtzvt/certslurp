@@ -2,14 +2,15 @@ package sink_test
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"io"
 	"sync"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/chtzvt/certslurp/internal/compression"
 	"github.com/chtzvt/certslurp/internal/sink"
+	"github.com/chtzvt/certslurp/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -89,43 +90,75 @@ func TestBuildBlobKey(t *testing.T) {
 	}
 }
 
-func TestAzureBlobSink_Compression_Gzip(t *testing.T) {
+func TestAzureBlobSink_CompressionVariants(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
-
 	require.NoError(t, store.Set(ctx, "TEST_AZURE_KEY", []byte("LPgXjG4nUZAeO7BIAXtgrYitCq9fyEOWDzC320EJEz2bBPJyF9db5kpaKHplyL6CR90H8dRmtumL+AStK+vO3Q==")))
 
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	mock := &mockBlockBlobAPI{uploadLock: wg}
-
-	opts := map[string]interface{}{
-		"account":           "faketestaccount",
-		"container":         "testcontainer",
-		"prefix":            "testing/",
-		"compression":       "gzip",
-		"access_key_secret": "TEST_AZURE_KEY",
+	tests := []struct {
+		name        string
+		compression string
+	}{
+		{"none", "none"},
+		{"gzip", "gzip"},
+		{"bzip2", "bzip2"},
+		{"zstd", "zstd"},
 	}
 
-	sinkIface, err := sink.NewAzureBlobSink(opts, store)
-	require.NoError(t, err)
-	azSink := sinkIface.(*sink.AzureBlobSink)
-	azSink.Client = mock
+	for _, tt := range tests {
+		t.Run(tt.compression, func(t *testing.T) {
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			mock := &mockBlockBlobAPI{uploadLock: wg}
 
-	writer, err := azSink.Open(ctx, "gzipped.txt")
-	require.NoError(t, err)
+			opts := map[string]interface{}{
+				"account":           "faketestaccount",
+				"container":         "testcontainer",
+				"prefix":            "testing/",
+				"access_key_secret": "TEST_AZURE_KEY",
+			}
 
-	payload := []byte("gzip payload for azureblob")
-	_, err = writer.Write(payload)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-	wg.Wait()
+			sinkIface, err := sink.NewAzureBlobSink(opts, store)
+			require.NoError(t, err)
+			azSink := sinkIface.(*sink.AzureBlobSink)
+			azSink.Client = mock
 
-	// Decompress and verify content
-	require.True(t, mock.called)
-	r, err := gzip.NewReader(bytes.NewReader(mock.lastBody))
-	require.NoError(t, err)
-	out, err := io.ReadAll(r)
-	require.NoError(t, err)
-	require.Equal(t, payload, out)
+			writer, err := azSink.Open(ctx, tt.name+".txt")
+			require.NoError(t, err)
+
+			payload := []byte("payload for " + tt.compression)
+			var input []byte
+
+			// Compress input according to table
+			if tt.compression == "none" {
+				input = payload
+			} else {
+				var buf testutil.WriteCloserBuffer
+				compWriter, err := compression.NewWriter(&buf, tt.compression)
+				require.NoError(t, err)
+				_, err = compWriter.Write(payload)
+				require.NoError(t, err)
+				require.NoError(t, compWriter.Close())
+				input = buf.Bytes()
+			}
+
+			_, err = writer.Write(input)
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
+			wg.Wait()
+			require.True(t, mock.called)
+
+			// Decompress and verify content
+			var out []byte
+			if tt.compression == "none" {
+				out = mock.lastBody
+			} else {
+				r, err := compression.NewReader(bytes.NewReader(mock.lastBody), tt.compression)
+				require.NoError(t, err)
+				out, err = io.ReadAll(r)
+				require.NoError(t, err)
+			}
+			require.Equal(t, payload, out)
+		})
+	}
 }

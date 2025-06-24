@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strconv"
 	"testing"
 
+	"github.com/chtzvt/certslurp/internal/compression"
 	"github.com/chtzvt/certslurp/internal/etl_core"
 	"github.com/chtzvt/certslurp/internal/extractor"
 	"github.com/chtzvt/certslurp/internal/job"
@@ -28,7 +30,7 @@ func (f *fakeExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry) (map
 type fakeTransformer struct{}
 
 func (f *fakeTransformer) Transform(ctx *etl_core.Context, data map[string]interface{}) ([]byte, error) {
-	return []byte(fmt.Sprintf("%s\n", data["val"])), nil
+	return []byte(fmt.Sprintf("%s", data["val"])), nil
 }
 func (f *fakeTransformer) Header(ctx *etl_core.Context) ([]byte, error) { return nil, nil }
 func (f *fakeTransformer) Footer(ctx *etl_core.Context) ([]byte, error) { return nil, nil }
@@ -103,17 +105,17 @@ func TestPipeline_ChunkingByRecordsAndBytes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should create 3 chunks:
-	// - 1st chunk: "0\n1\n2\n" (6 bytes, chunk by byte)
-	// - 2nd chunk: "3\n4\n5\n" (6 bytes)
-	// - 3rd chunk: "6\n"
+	// - 1st chunk: "012" (6 bytes, chunk by byte)
+	// - 2nd chunk: "345" (6 bytes)
+	// - 3rd chunk: "6"
 	require.Len(t, ms.Chunks, 3)
 	require.Contains(t, ms.Chunks[0].Name, "testfile.0001")
 	require.Contains(t, ms.Chunks[1].Name, "testfile.0002")
 	require.Contains(t, ms.Chunks[2].Name, "testfile.0003")
 
-	require.Equal(t, "0\n1\n2\n", string(ms.Chunks[0].Data))
-	require.Equal(t, "3\n4\n5\n", string(ms.Chunks[1].Data))
-	require.Equal(t, "6\n", string(ms.Chunks[2].Data))
+	require.Equal(t, "012", string(ms.Chunks[0].Data))
+	require.Equal(t, "345", string(ms.Chunks[1].Data))
+	require.Equal(t, "6", string(ms.Chunks[2].Data))
 }
 
 func TestPipeline_EmptyInput(t *testing.T) {
@@ -172,7 +174,7 @@ func TestPipeline_SingleRecord(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ms.Chunks, 1)
 	require.Contains(t, ms.Chunks[0].Name, "single")
-	require.Equal(t, "solo\n", string(ms.Chunks[0].Data))
+	require.Equal(t, "solo", string(ms.Chunks[0].Data))
 }
 
 func TestPipeline_ChunkByBytesOnly(t *testing.T) {
@@ -189,7 +191,7 @@ func TestPipeline_ChunkByBytesOnly(t *testing.T) {
 				Extractor:   "fake-bytes",
 				Transformer: "fake-bytes",
 				Sink:        "mock-bytes",
-				ChunkBytes:  4, // Each record is "x\n" = 2 bytes, so chunk every 2 records
+				ChunkBytes:  2, // Each record is "x" = 1 byte, so chunk every 2 records
 			},
 		},
 	}
@@ -205,8 +207,8 @@ func TestPipeline_ChunkByBytesOnly(t *testing.T) {
 	err = pipeline.StreamProcess(context.Background(), entries)
 	require.NoError(t, err)
 	require.Len(t, ms.Chunks, 2)
-	require.Equal(t, "0\n1\n", string(ms.Chunks[0].Data))
-	require.Equal(t, "2\n3\n", string(ms.Chunks[1].Data))
+	require.Equal(t, "01", string(ms.Chunks[0].Data))
+	require.Equal(t, "23", string(ms.Chunks[1].Data))
 }
 
 func TestPipeline_ChunkByRecordsOnly(t *testing.T) {
@@ -239,9 +241,9 @@ func TestPipeline_ChunkByRecordsOnly(t *testing.T) {
 	err = pipeline.StreamProcess(context.Background(), entries)
 	require.NoError(t, err)
 	require.Len(t, ms.Chunks, 3)
-	require.Equal(t, "0\n1\n", string(ms.Chunks[0].Data))
-	require.Equal(t, "2\n3\n", string(ms.Chunks[1].Data))
-	require.Equal(t, "4\n", string(ms.Chunks[2].Data))
+	require.Equal(t, "01", string(ms.Chunks[0].Data))
+	require.Equal(t, "23", string(ms.Chunks[1].Data))
+	require.Equal(t, "4", string(ms.Chunks[2].Data))
 }
 
 type errorExtractor struct{}
@@ -351,4 +353,72 @@ func TestPipeline_SinkWriterError(t *testing.T) {
 	err = pipeline.StreamProcess(context.Background(), entries)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "write fail")
+}
+
+func TestPipeline_StreamProcess_Compression(t *testing.T) {
+	extractor.Register("fake-comp", &fakeExtractor{})
+	transformer.Register("fake-comp", &fakeTransformer{})
+
+	// Table of compression modes to test
+	tests := []struct {
+		name        string
+		compression string
+	}{
+		{"none", "none"},
+		{"gzip", "gzip"},
+		{"bzip2", "bzip2"},
+		{"zstd", "zstd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.compression, func(t *testing.T) {
+			ms := &mockSink{}
+			sink.Register("mock-comp-"+tt.compression, func(opts map[string]interface{}, secrets *secrets.Store) (sink.Sink, error) {
+				return ms, nil
+			})
+
+			// Set up a job spec with compression in SinkOptions
+			spec := &job.JobSpec{
+				Options: job.JobOptions{
+					Output: job.OutputOptions{
+						Extractor:   "fake-comp",
+						Transformer: "fake-comp",
+						Sink:        "mock-comp-" + tt.compression,
+						SinkOptions: map[string]interface{}{
+							"compression": tt.compression,
+						},
+					},
+				},
+			}
+			secretsStore := &secrets.Store{} // unused by mockSink
+
+			pipeline, err := NewPipeline(spec, secretsStore, "compressedfile")
+			require.NoError(t, err)
+
+			payload := []byte(fmt.Sprintf("hello etl compression %s", tt.compression))
+			entries := make(chan *ct.RawLogEntry, 1)
+			entries <- &ct.RawLogEntry{
+				Cert: ct.ASN1Cert{Data: payload},
+			}
+			close(entries)
+
+			err = pipeline.StreamProcess(context.Background(), entries)
+			require.NoError(t, err)
+
+			// Should create 1 chunk
+			require.Len(t, ms.Chunks, 1)
+
+			// Decompress (if any) and verify content
+			var out []byte
+			if tt.compression == "none" {
+				out = ms.Chunks[0].Data
+			} else {
+				r, err := compression.NewReader(bytes.NewReader(ms.Chunks[0].Data), tt.compression)
+				require.NoError(t, err)
+				out, err = io.ReadAll(r)
+				require.NoError(t, err)
+			}
+			require.Equal(t, payload, out)
+		})
+	}
 }

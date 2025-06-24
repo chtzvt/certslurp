@@ -7,6 +7,10 @@ type pipeSinkWriter struct {
 	io.Closer
 }
 
+type nopCloser struct{}
+
+func (nopCloser) Close() error { return nil }
+
 func toBool(val interface{}) bool {
 	switch v := val.(type) {
 	case bool:

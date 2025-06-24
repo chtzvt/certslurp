@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/chtzvt/certslurp/internal/compression"
 	"github.com/chtzvt/certslurp/internal/sink"
 	ct "github.com/google/certificate-transparency-go"
 )
@@ -23,10 +24,20 @@ func (p *Pipeline) StreamProcess(ctx context.Context, entries <-chan *ct.RawLogE
 		if p.MaxChunkBytes > 0 || p.MaxChunkRecs > 0 {
 			name = fmt.Sprintf("%s.%04d", p.BaseName, chunkNum)
 		}
-		w, err := p.Sink.Open(ctx, name)
+		sinkWriter, err := p.Sink.Open(ctx, name)
 		if err != nil {
 			return nil, err
 		}
+
+		// Wrap sink.SinkWriter in compression if requested in job spec
+		// If compression flag is empty or default value, it'll no-op
+		compOpt, _ := p.Ctx.Spec.Options.Output.SinkOptions["compression"]
+		compressionType, _ := compOpt.(string)
+		w, err := compression.NewWriter(sinkWriter, compressionType)
+		if err != nil {
+			return nil, err
+		}
+
 		needHeader = true
 		return w, nil
 	}

@@ -13,22 +13,41 @@ import (
 
 // NewWriter returns an io.WriteCloser that wraps w with the requested compression.
 // Supported: "gzip", "bzip2", or "" (no compression).
-func NewWriter(w io.Writer, compression string) (io.WriteCloser, error) {
+func NewWriter(w io.WriteCloser, compression string) (io.WriteCloser, error) {
+	var compressor io.WriteCloser
+	var err error
+
 	switch compression {
 	case "gzip":
-		return gzip.NewWriter(w), nil
+		compressor, err = gzip.NewWriter(w), nil
 	case "bzip2":
-		return bzip2.NewWriter(w, &bzip2.WriterConfig{Level: bzip2.BestCompression})
+		compressor, err = bzip2.NewWriter(w, &bzip2.WriterConfig{Level: bzip2.BestCompression})
 	case "zstd":
-		return zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+		compressor, err = zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
 	case "", "none":
-		return nopWriteCloser{w}, nil
+		compressor, err = nopWriteCloser{w}, nil
+	}
+
+	if err != nil || compressor == nil {
+		return nil, fmt.Errorf("unsupported compression: %s", compression)
+	}
+
+	return &cascadeWriteCloser{compressor, w}, nil
+}
+
+// NewReader returns an io.Reader that wraps w with the requested compression.
+// Supported: "gzip", "bzip2", or "" (no compression).
+func NewReader(r io.Reader, compression string) (io.Reader, error) {
+	switch compression {
+	case "gzip":
+		return gzip.NewReader(r)
+	case "bzip2":
+		return bzip2.NewReader(r, &bzip2.ReaderConfig{})
+	case "zstd":
+		return zstd.NewReader(r)
+	case "", "none":
+		return r, nil
 	default:
 		return nil, fmt.Errorf("unsupported compression: %s", compression)
 	}
 }
-
-type nopWriteCloser struct{ io.Writer }
-
-func (n nopWriteCloser) Write(p []byte) (int, error) { return n.Writer.Write(p) }
-func (n nopWriteCloser) Close() error                { return nil }

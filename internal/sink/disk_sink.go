@@ -3,17 +3,14 @@ package sink
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
-	"github.com/chtzvt/certslurp/internal/compression"
 	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
 type DiskSink struct {
-	baseDir     string
-	compression string
+	baseDir string
 }
 
 func NewDiskSink(opts map[string]interface{}, _ *secrets.Store) (Sink, error) {
@@ -21,11 +18,7 @@ func NewDiskSink(opts map[string]interface{}, _ *secrets.Store) (Sink, error) {
 	if !ok || baseDir == "" {
 		return nil, fmt.Errorf("disk sink requires 'path' option")
 	}
-	compression, _ := opts["compression"].(string)
-	if compression == "" {
-		compression = "none"
-	}
-	return &DiskSink{baseDir: baseDir, compression: compression}, nil
+	return &DiskSink{baseDir: baseDir}, nil
 }
 
 func (d *DiskSink) Open(ctx context.Context, name string) (SinkWriter, error) {
@@ -37,26 +30,19 @@ func (d *DiskSink) Open(ctx context.Context, name string) (SinkWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	w, err := compression.NewWriter(f, d.compression)
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-	return &diskSinkWriter{w, f}, nil
+	return &diskSinkWriter{f}, nil
 }
 
 type diskSinkWriter struct {
-	io.WriteCloser
 	f *os.File
 }
 
+func (d *diskSinkWriter) Write(p []byte) (int, error) {
+	return d.f.Write(p)
+}
+
 func (d *diskSinkWriter) Close() error {
-	err1 := d.WriteCloser.Close()
-	err2 := d.f.Close()
-	if err1 != nil {
-		return err1
-	}
-	return err2
+	return d.f.Close()
 }
 
 func init() {

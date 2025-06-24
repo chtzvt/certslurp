@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/chtzvt/certslurp/internal/compression"
 	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
@@ -18,7 +17,6 @@ type AzureBlobSink struct {
 	account       string
 	container     string
 	prefix        string
-	compression   string
 	accessKeyName string
 	secrets       *secrets.Store
 	bufferType    string
@@ -30,18 +28,19 @@ type azureBlobSinkWriter struct {
 	blobClient BlockBlobAPI
 	buf        *bytes.Buffer // for memory
 	file       *os.File      // for disk
-	comp       io.WriteCloser
+	closer     io.Closer
 	diskMode   bool
 }
 
 func (w *azureBlobSinkWriter) Write(p []byte) (int, error) {
-	return w.comp.Write(p)
+	if w.diskMode {
+		return w.file.Write(p)
+	}
+	return w.buf.Write(p)
 }
 
 func (w *azureBlobSinkWriter) Close() error {
-	if err := w.comp.Close(); err != nil {
-		return err
-	}
+	defer w.closer.Close()
 	var reader io.ReadSeeker
 	if w.diskMode {
 		defer os.Remove(w.file.Name())
@@ -52,7 +51,6 @@ func (w *azureBlobSinkWriter) Close() error {
 	} else {
 		reader = bytes.NewReader(w.buf.Bytes())
 	}
-
 	_, err := w.blobClient.UploadStream(w.ctx, reader, nil)
 	return err
 }
@@ -68,7 +66,6 @@ func NewAzureBlobSink(opts map[string]interface{}, secrets *secrets.Store) (Sink
 		return nil, fmt.Errorf("azureblob sink requires 'account' and 'container' options")
 	}
 	prefix, _ := opts["prefix"].(string)
-	compression, _ := opts["compression"].(string)
 	accessKeyName, _ := opts["access_key_secret"].(string)
 	bufferType := "memory"
 	if v, ok := opts["buffer_type"].(string); ok && v == "disk" {
@@ -79,7 +76,6 @@ func NewAzureBlobSink(opts map[string]interface{}, secrets *secrets.Store) (Sink
 		account:       account,
 		container:     container,
 		prefix:        prefix,
-		compression:   compression,
 		accessKeyName: accessKeyName,
 		secrets:       secrets,
 		bufferType:    bufferType,
@@ -110,9 +106,9 @@ func (a *AzureBlobSink) Open(ctx context.Context, name string) (SinkWriter, erro
 		blobClient = client.ServiceClient().NewContainerClient(a.container).NewBlockBlobClient(blobName)
 	}
 
-	var bufWriter io.Writer
 	var file *os.File
 	var buf *bytes.Buffer
+	var closer io.Closer
 
 	diskMode := a.bufferType == "disk"
 	if diskMode {
@@ -121,20 +117,11 @@ func (a *AzureBlobSink) Open(ctx context.Context, name string) (SinkWriter, erro
 			return nil, fmt.Errorf("failed to create temp file: %w", err)
 		}
 		file = f
-		bufWriter = file
+		closer = file
 	} else {
 		b := &bytes.Buffer{}
 		buf = b
-		bufWriter = buf
-	}
-
-	comp, err := compression.NewWriter(bufWriter, a.compression)
-	if err != nil {
-		if file != nil {
-			file.Close()
-			os.Remove(file.Name())
-		}
-		return nil, err
+		closer = nopCloser{}
 	}
 
 	return &azureBlobSinkWriter{
@@ -142,7 +129,7 @@ func (a *AzureBlobSink) Open(ctx context.Context, name string) (SinkWriter, erro
 		blobClient: blobClient,
 		buf:        buf,
 		file:       file,
-		comp:       comp,
+		closer:     closer,
 		diskMode:   diskMode,
 	}, nil
 }

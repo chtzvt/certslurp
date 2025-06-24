@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/chtzvt/certslurp/internal/compression"
 	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
@@ -50,11 +49,10 @@ func NewHTTPSink(opts map[string]interface{}, secrets *secrets.Store) (Sink, err
 }
 
 type httpSinkWriter struct {
-	sink     *HTTPSink
-	ctx      context.Context
-	buf      *bytes.Buffer
-	closed   bool
-	firstErr error
+	sink   *HTTPSink
+	ctx    context.Context
+	buf    *bytes.Buffer
+	closed bool
 }
 
 func (s *HTTPSink) Open(ctx context.Context, name string) (SinkWriter, error) {
@@ -78,31 +76,23 @@ func (w *httpSinkWriter) Close() error {
 	}
 	w.closed = true
 
-	var postBody bytes.Buffer
-	bodyWriter, err := compression.NewWriter(&postBody, w.sink.compression)
-	if err != nil {
-		return err
-	}
-	_, err = bodyWriter.Write(w.buf.Bytes())
-	_ = bodyWriter.Close()
-	if err != nil {
-		return err
-	}
-
 	// Retry logic
 	for attempt := 1; attempt <= w.sink.maxRetries; attempt++ {
-		req, err := http.NewRequestWithContext(w.ctx, "POST", w.sink.endpoint, bytes.NewReader(postBody.Bytes()))
+		req, err := http.NewRequestWithContext(w.ctx, "POST", w.sink.endpoint, bytes.NewReader(w.buf.Bytes()))
 		if err != nil {
 			return err
 		}
 		for k, v := range w.sink.headers {
 			req.Header.Set(k, v)
 		}
-		if w.sink.compression == "gzip" {
+		// Set compression headers for already-compressed content
+		switch w.sink.compression {
+		case "gzip":
 			req.Header.Set("Content-Encoding", "gzip")
-		}
-		if w.sink.compression == "bzip2" {
+		case "bzip2":
 			req.Header.Set("Content-Encoding", "x-bzip2")
+		case "zstd":
+			req.Header.Set("Content-Encoding", "zstd")
 		}
 		resp, err := w.sink.client.Do(req)
 		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {

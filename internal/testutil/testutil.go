@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"bytes"
 	"log"
 	"os"
 	"testing"
@@ -44,4 +45,12 @@ func SetupTempDir(t *testing.T) (string, func()) {
 		t.Fatalf("failed to create temporary directory: %v", err)
 	}
 	return tempDir, func() { os.RemoveAll(tempDir) }
+}
+
+type WriteCloserBuffer struct {
+	bytes.Buffer
+}
+
+func (wcb *WriteCloserBuffer) Close() error {
+	return nil
 }

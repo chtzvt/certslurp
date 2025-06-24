@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/chtzvt/certslurp/internal/compression"
 	"github.com/chtzvt/certslurp/internal/secrets"
 )
 
@@ -20,7 +19,6 @@ type S3Sink struct {
 	bucket             string
 	prefix             string
 	region             string
-	compression        string
 	accessKeyIDName    string
 	secretAccesKeyName string
 	secrets            *secrets.Store
@@ -30,7 +28,6 @@ type S3Sink struct {
 	bufferType         string
 }
 
-// PutObjectAPI abstracts the S3 PutObject method (for testing)
 type PutObjectAPI interface {
 	PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 }
@@ -42,19 +39,18 @@ type s3SinkWriter struct {
 	key      string
 	buf      *bytes.Buffer // nil if disk
 	file     *os.File      // nil if memory
-	comp     io.WriteCloser
 	closer   io.Closer
 	diskMode bool
 }
 
 func (w *s3SinkWriter) Write(p []byte) (int, error) {
-	return w.comp.Write(p)
+	if w.diskMode {
+		return w.file.Write(p)
+	}
+	return w.buf.Write(p)
 }
 
 func (w *s3SinkWriter) Close() error {
-	if err := w.comp.Close(); err != nil {
-		return err
-	}
 	defer w.closer.Close()
 	var reader io.ReadSeeker
 
@@ -81,12 +77,8 @@ func NewS3Sink(opts map[string]interface{}, secrets *secrets.Store) (Sink, error
 	bucket, _ := opts["bucket"].(string)
 	prefix, _ := opts["prefix"].(string)
 	region, _ := opts["region"].(string)
-
 	accessKeyIDName, _ := opts["access_key_id_secret"].(string)
 	secretAccesKeyName, _ := opts["access_key_secret"].(string)
-
-	compression, _ := opts["compression"].(string)
-
 	endpoint, _ := opts["endpoint"].(string)
 	baseEndpoint, _ := opts["base_endpoint"].(string)
 
@@ -108,7 +100,6 @@ func NewS3Sink(opts map[string]interface{}, secrets *secrets.Store) (Sink, error
 		bucket:             bucket,
 		prefix:             prefix,
 		region:             region,
-		compression:        compression,
 		accessKeyIDName:    accessKeyIDName,
 		secretAccesKeyName: secretAccesKeyName,
 		secrets:            secrets,
@@ -159,7 +150,6 @@ func (s *S3Sink) Open(ctx context.Context, name string) (SinkWriter, error) {
 
 	key := BuildS3Key(s.prefix, name)
 
-	var bufWriter io.Writer
 	var file *os.File
 	var buf *bytes.Buffer
 	var closer io.Closer
@@ -170,22 +160,11 @@ func (s *S3Sink) Open(ctx context.Context, name string) (SinkWriter, error) {
 			return nil, fmt.Errorf("failed to create temp file: %w", err)
 		}
 		file = f
-		bufWriter = file
 		closer = file
 	} else {
 		b := &bytes.Buffer{}
 		buf = b
-		bufWriter = buf
-		closer = io.NopCloser(nil) // no-op closer for memory
-	}
-
-	comp, err := compression.NewWriter(bufWriter, s.compression)
-	if err != nil {
-		if file != nil {
-			file.Close()
-			os.Remove(file.Name())
-		}
-		return nil, err
+		closer = nopCloser{}
 	}
 
 	return &s3SinkWriter{
@@ -195,7 +174,6 @@ func (s *S3Sink) Open(ctx context.Context, name string) (SinkWriter, error) {
 		key:      key,
 		buf:      buf,
 		file:     file,
-		comp:     comp,
 		closer:   closer,
 		diskMode: s.bufferType == "disk",
 	}, nil
