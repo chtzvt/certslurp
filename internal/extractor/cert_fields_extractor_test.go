@@ -175,6 +175,32 @@ func TestCertFieldsExtractor_HandlesNilOptions(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCertFieldsExtractor_HandlesMetadataOptions(t *testing.T) {
+	raw := testutil.RawLogEntryForTestCert(t, 0)
+	ex := &CertFieldsExtractor{}
+
+	ctx := &etl_core.Context{
+		Spec: &job.JobSpec{
+			LogURI: "https://testlog.example.com",
+			Options: job.JobOptions{
+				Output: job.OutputOptions{
+					ExtractorOptions: map[string]interface{}{
+						"metadata_fields": "log_url",
+					},
+				},
+			},
+		},
+	}
+
+	// Should not panic or error
+	got, err := ex.Extract(ctx, raw)
+	require.NoError(t, err)
+
+	require.Contains(t, got, "log")
+	require.Equal(t, got["log"], "https://testlog.example.com")
+	require.Equal(t, got["fts"], nil)
+}
+
 func TestCertFieldsExtractor_Precert_AllFields(t *testing.T) {
 	raw := testutil.RawLogEntryForTestPrecert(t, 0)
 	ex := &CertFieldsExtractor{

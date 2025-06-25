@@ -31,6 +31,8 @@ It can be configured in a JobSpec via the following options:
 
 		// Specific field list:
 		"log_fields": "log_index"
+
+		"metadata_fields": "log_url"
 	}
 }
 */
@@ -39,6 +41,7 @@ It can be configured in a JobSpec via the following options:
 type CertFieldsExtractorOutput struct {
 	Type string `json:"t,omitempty"`
 
+	// Cert/Precert Fields
 	CommonName         string    `json:"cn,omitempty"`
 	EmailAddresses     []string  `json:"em,omitempty"`
 	OrganizationalUnit []string  `json:"ou,omitempty"`
@@ -57,8 +60,13 @@ type CertFieldsExtractorOutput struct {
 	NotBefore          time.Time `json:"nbf"`
 	NotAfter           time.Time `json:"naf"`
 
+	// Log Entry Fields
 	LogIndex     int64     `json:"li"`
 	LogTimestamp time.Time `json:"lts"`
+
+	// Metadata Fields
+	LogUrl           string    `json:"log"`
+	FetchedTimestamp time.Time `json:"fts"`
 }
 
 type CertFieldsExtractor struct {
@@ -66,16 +74,29 @@ type CertFieldsExtractor struct {
 }
 
 type CertFieldsExtractorOptions struct {
-	CertFields    string `json:"cert_fields"`
-	PrecertFields string `json:"precert_fields"`
-	LogFields     string `json:"log_fields"`
+	CertFields     string `json:"cert_fields"`
+	PrecertFields  string `json:"precert_fields"`
+	LogFields      string `json:"log_fields"`
+	MetadataFields string `json:"metadata_fields"`
 }
 
 const (
-	CertFieldsExtractorDefaultCertFields    string = ""
-	CertFieldsExtractorDefaultPreCertFields string = ""
-	CertFieldsExtractorDefaultLogFields     string = ""
+	CertFieldsExtractorDefaultCertFields     string = ""
+	CertFieldsExtractorDefaultPreCertFields  string = ""
+	CertFieldsExtractorDefaultLogFields      string = ""
+	CertFieldsExtractorDefaultMetadataFields string = ""
 )
+
+type CertFieldsExtractorMetadataFunc func(ctx *etl_core.Context) (string, interface{}, error)
+
+var metaFuncs = map[string]CertFieldsExtractorMetadataFunc{
+	"log_url": func(ctx *etl_core.Context) (string, interface{}, error) {
+		return "log", ctx.Spec.LogURI, nil
+	},
+	"fetch_timestamp": func(ctx *etl_core.Context) (string, interface{}, error) {
+		return "fts", time.Now(), nil
+	},
+}
 
 type CertFieldsExtractorCertFunc func(cert *x509.Certificate) (string, interface{}, error)
 
@@ -235,7 +256,7 @@ func (e *CertFieldsExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry
 	}
 
 	// Collect all known field keys for each type
-	var certKeys, precertKeys, logKeys []string
+	var certKeys, precertKeys, logKeys, metaKeys []string
 	for k := range certFuncs {
 		certKeys = append(certKeys, k)
 	}
@@ -245,15 +266,31 @@ func (e *CertFieldsExtractor) Extract(ctx *etl_core.Context, raw *ct.RawLogEntry
 	for k := range logEntryFuncs {
 		logKeys = append(logKeys, k)
 	}
+	for k := range metaFuncs {
+		metaKeys = append(metaKeys, k)
+	}
 
 	certFields := parseFieldSpec(certKeys, e.Options.CertFields)
 	precertFields := parseFieldSpec(precertKeys, e.Options.PrecertFields)
 	logFields := parseFieldSpec(logKeys, e.Options.LogFields)
+	metaFields := parseFieldSpec(metaKeys, e.Options.MetadataFields)
 
 	result := map[string]interface{}{}
 	parsed, err := raw.ToLogEntry()
 	if err != nil {
 		return nil, err
+	}
+
+	for key, use := range metaFields {
+		if !use {
+			continue
+		}
+		if fn, ok := metaFuncs[key]; ok {
+			outKey, val, err := fn(ctx)
+			if err == nil && outKey != "" && val != nil {
+				result[outKey] = val
+			}
+		}
 	}
 
 	if parsed.X509Cert != nil && len(certFields) > 0 {
@@ -327,6 +364,7 @@ func parseOptions(opts map[string]interface{}) CertFieldsExtractorOptions {
 		o.CertFields = CertFieldsExtractorDefaultCertFields
 		o.PrecertFields = CertFieldsExtractorDefaultPreCertFields
 		o.LogFields = CertFieldsExtractorDefaultLogFields
+		o.MetadataFields = CertFieldsExtractorDefaultMetadataFields
 		return o
 	}
 
@@ -338,6 +376,8 @@ func parseOptions(opts map[string]interface{}) CertFieldsExtractorOptions {
 			o.PrecertFields, _ = v.(string)
 		case "log_fields":
 			o.LogFields, _ = v.(string)
+		case "metadata_fields":
+			o.MetadataFields, _ = v.(string)
 		}
 	}
 
@@ -355,6 +395,10 @@ func parseOptions(opts map[string]interface{}) CertFieldsExtractorOptions {
 
 	if len(o.LogFields) == 0 {
 		o.LogFields = CertFieldsExtractorDefaultLogFields
+	}
+
+	if len(o.MetadataFields) == 0 {
+		o.MetadataFields = CertFieldsExtractorDefaultMetadataFields
 	}
 
 	return o
