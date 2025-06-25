@@ -6,9 +6,11 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/chtzvt/certslurp/internal/cluster"
 	"github.com/chtzvt/certslurp/internal/job"
 )
 
@@ -259,4 +261,40 @@ func (w *Worker) tryAssignShardWithRetry(ctx context.Context, jobID string, shar
 		return err
 	}
 	return fmt.Errorf("failed to assign shard %d (job %s) after %d retries: last error: %v", shardID, jobID, maxAssignShardRetries, lastErr)
+}
+
+// baseNameForPipeline returns a normalized name for the data output by this shard's ETL pipeline, in
+// the format <log url>.<log index range>.<job uuid>.<shard id>
+// Example: mysite_domain_com__some__path.0_1000000.17E28132-8B25-4FB2-99C5-89938D4D3D24.1
+func baseNameForPipeline(spec *job.JobSpec, shardStatus cluster.ShardStatus, jobID string, shardID int) string {
+	logUrl, err := normalizeURL(spec.LogURI)
+	if err != nil {
+		logUrl = jobID
+	}
+
+	shardRange := fmt.Sprintf("%d_%d", shardStatus.IndexFrom, shardStatus.IndexTo)
+
+	return strings.ToLower(fmt.Sprintf("%s.%s.%s.%d", logUrl, shardRange, jobID, shardID))
+}
+
+func normalizeURL(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL: %w", err)
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("invalid URL: no hostname found")
+	}
+
+	path := strings.Trim(parsed.EscapedPath(), "/")
+
+	host = strings.ReplaceAll(host, ".", "_")
+	path = strings.ReplaceAll(path, "/", "__")
+
+	if path != "" {
+		return host + "__" + path, nil
+	}
+	return host, nil
 }

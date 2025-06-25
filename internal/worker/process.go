@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/chtzvt/certslurp/internal/cluster"
@@ -54,7 +53,7 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 		return
 	}
 
-	pipeline, err := etl.NewPipeline(jobInfo.Spec, w.Cluster.Secrets(), fmt.Sprintf("job-%s-shard-%d", jobID, shardID))
+	pipeline, err := etl.NewPipeline(jobInfo.Spec, w.Cluster.Secrets(), baseNameForPipeline(jobInfo.Spec, status, jobID, shardID))
 	if err != nil {
 		w.Logger.Printf("etl pipeline init failed: %v", err)
 		return
