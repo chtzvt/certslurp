@@ -55,8 +55,8 @@ func runHead(cfg *config.ClusterConfig) error {
 func isShardEffectivelyDone(shard cluster.ShardAssignmentStatus) bool {
 	// A shard is considered "done" if:
 	//   - It's marked Done,
-	//   - Or, it's permanently failed (Failed && Retries > MaxShardRetries)
-	return shard.Done || (shard.Failed && shard.Retries > cluster.MaxShardRetries)
+	//   - Or, it's permanently failed
+	return shard.Done || shard.Failed
 }
 
 func headMonitorLoop(ctx context.Context, cl cluster.Cluster, pollInterval time.Duration, logger *log.Logger) {
@@ -97,7 +97,7 @@ func headMonitorLoop(ctx context.Context, cl cluster.Cluster, pollInterval time.
 					if !isShardEffectivelyDone(shard) {
 						allDone = false
 					}
-					if shard.Failed && shard.Retries > cluster.MaxShardRetries {
+					if !shard.Failed && shard.Retries >= cluster.MaxShardRetries {
 						hasPermanentFailure = true
 					}
 				}
