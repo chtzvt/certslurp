@@ -494,7 +494,7 @@ func (c *etcdCluster) ResetFailedShards(ctx context.Context, jobID string) ([]in
 	var resetIDs []int
 
 	for shardID, status := range statuses {
-		if status.Done && status.Failed {
+		if (status.Done && status.Failed) || (!status.Done && status.Retries >= MaxShardRetries) {
 			if err := c.ResetFailedShard(ctx, jobID, shardID); err != nil {
 				return resetIDs, fmt.Errorf("failed to reset shard %d: %w", shardID, err)
 			}
