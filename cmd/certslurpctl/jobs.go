@@ -411,9 +411,41 @@ func jobShardsCmd() *cobra.Command {
 	return cmd
 }
 
-func jobShardStatusCmd() *cobra.Command {
+func jobResetFailedCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "shard-status <jobID> <shardID>",
+		Use:   "reset <jobID>",
+		Short: "Reset all failed shards for a job",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := cliClient()
+			ctx := context.Background()
+			jobID := args[0]
+			shards, err := client.ResetFailedShards(ctx, jobID)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Reset %d failed shards for job %s: %v\n", len(shards), jobID, shards)
+			return nil
+		},
+	}
+}
+
+func shardCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "shard",
+		Short: "Shard operations",
+	}
+
+	cmd.AddCommand(
+		shardStatusCmd(),
+		shardResetCmd(),
+	)
+	return cmd
+}
+
+func shardStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status <jobID> <shardID>",
 		Short: "Get status for a single shard",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -430,6 +462,29 @@ func jobShardStatusCmd() *cobra.Command {
 				return err
 			}
 			outResult(status, printShardStatusTable)
+			return nil
+		},
+	}
+}
+
+func shardResetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reset <jobID> <shardID>",
+		Short: "Reset a specific failed shard",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := cliClient()
+			ctx := context.Background()
+			jobID := args[0]
+			var shardID int
+			_, err := fmt.Sscanf(args[1], "%d", &shardID)
+			if err != nil {
+				return fmt.Errorf("invalid shardID: %w", err)
+			}
+			if err := client.ResetFailedShard(ctx, jobID, shardID); err != nil {
+				return err
+			}
+			fmt.Printf("Reset failed shard %d for job %s\n", shardID, jobID)
 			return nil
 		},
 	}
