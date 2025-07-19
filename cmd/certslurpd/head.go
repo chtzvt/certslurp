@@ -107,10 +107,19 @@ func headMonitorLoop(ctx context.Context, cl cluster.Cluster, pollInterval time.
 				}
 
 				switch job.Status {
+				case cluster.JobStateFailed:
+					// If there are any assigned and no permanently failed shards for a failed job, mark it as running
+					if hasAssignedShard && !hasPermanentFailure {
+						logger.Printf("Job %s is failed but has assigned shards and no permanently failed shards; marking as running", job.ID)
+						if err := cl.UpdateJobStatus(ctx, job.ID, cluster.JobStateRunning); err != nil {
+							logger.Printf("Failed to mark job %s running: %v", job.ID, err)
+						}
+					}
+					continue
 				case cluster.JobStateCancelled:
 					// If there are no incomplete or permanently failed shards for a cancelled job, mark it as running
-					if incompleteShards == 0 && !hasPermanentFailure {
-						logger.Printf("Job %s is cancelled but has no incomplete/permanently failed shards; marking as running", job.ID)
+					if hasAssignedShard && !hasPermanentFailure {
+						logger.Printf("Job %s is cancelled but has assigned shards and no permanently failed shards; marking as running", job.ID)
 						if err := cl.UpdateJobStatus(ctx, job.ID, cluster.JobStateRunning); err != nil {
 							logger.Printf("Failed to mark job %s running: %v", job.ID, err)
 						}
