@@ -75,31 +75,55 @@ func headMonitorLoop(ctx context.Context, cl cluster.Cluster, pollInterval time.
 			}
 
 			for _, job := range jobs {
-				if job.Status == cluster.JobStateCompleted || job.Status == cluster.JobStateCancelled {
+				if job.Status == cluster.JobStateCompleted {
 					continue
 				}
-
 				maybeSleep()
 				shardMap, err := cl.GetShardAssignments(ctx, job.ID)
 				if err != nil {
 					logger.Printf("Error getting shards for job %s: %v", job.ID, err)
 					continue
 				}
-
 				if len(shardMap) == 0 {
 					continue
 				}
 
 				allDone := true
 				hasPermanentFailure := false
+				hasAssignedShard := false
+				incompleteShards := 0
 
 				for _, shard := range shardMap {
+					if shard.Assigned && !shard.Done && !shard.Failed {
+						hasAssignedShard = true
+					}
 					if !isShardEffectivelyDone(shard) {
 						allDone = false
+						incompleteShards++
 					}
 					if !shard.Failed && shard.Retries >= cluster.MaxShardRetries {
 						hasPermanentFailure = true
 					}
+				}
+
+				switch job.Status {
+				case cluster.JobStateCancelled:
+					// If there are no incomplete or permanently failed shards for a cancelled job, mark it as running
+					if incompleteShards == 0 && !hasPermanentFailure {
+						logger.Printf("Job %s is cancelled but has no incomplete/permanently failed shards; marking as running", job.ID)
+						if err := cl.UpdateJobStatus(ctx, job.ID, cluster.JobStateRunning); err != nil {
+							logger.Printf("Failed to mark job %s running: %v", job.ID, err)
+						}
+					}
+					continue
+				case cluster.JobStatePending:
+					if hasAssignedShard {
+						logger.Printf("Job %s is pending but active assigned shards; marking as running", job.ID)
+						if err := cl.UpdateJobStatus(ctx, job.ID, cluster.JobStateRunning); err != nil {
+							logger.Printf("Failed to mark job %s running: %v", job.ID, err)
+						}
+					}
+					continue
 				}
 
 				if allDone {
