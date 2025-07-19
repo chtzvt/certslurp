@@ -17,6 +17,11 @@ func printJobsTable(data any) {
 		fmt.Println("No jobs found")
 		return
 	}
+
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].Submitted.Before(jobs[j].Submitted)
+	})
+
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"ID", "Log URI", "Status", "Submitted", "Started", "Completed", "Cancelled"})
 	for _, job := range jobs {
@@ -63,6 +68,11 @@ func printWorkersTable(data any) {
 		fmt.Println("No workers found")
 		return
 	}
+
+	sort.Slice(workers, func(i, j int) bool {
+		return workers[i].ID < workers[j].ID
+	})
+
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{
 		"ID", "Host", "Last Seen", "Shards Processed", "Shards Failed", "Processing Time (s)", "Last Updated",
