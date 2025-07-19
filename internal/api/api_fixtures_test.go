@@ -137,6 +137,18 @@ func (s *stubCluster) RenewShardLease(ctx context.Context, jobID string, shardID
 	return nil
 }
 
+func (s *stubCluster) ReleaseShardLease(ctx context.Context, jobID string, shardID int, workerID string) error {
+	return nil
+}
+
+func (s *stubCluster) ResetFailedShards(ctx context.Context, jobID string) ([]int, error) {
+	return []int{}, nil
+}
+
+func (s *stubCluster) ResetFailedShard(ctx context.Context, jobID string, shardID int) error {
+	return nil
+}
+
 func (s *stubCluster) ShardKey(string, int) string { return "" }
 func (s *stubCluster) Secrets() *secrets.Store     { return nil }
 func (s *stubCluster) Prefix() string              { return "" }

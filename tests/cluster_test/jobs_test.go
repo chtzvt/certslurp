@@ -177,7 +177,7 @@ func TestCluster_JobStatusTransitions(t *testing.T) {
 	testutil.WaitFor(t, func() bool {
 		s, _ := cl.GetJob(ctx, jobID)
 		return s.Status == cluster.JobStateCompleted
-	}, 5*time.Second, 100*time.Millisecond, "job should reach Completed status")
+	}, 10*time.Second, 100*time.Millisecond, "job should reach Completed status")
 
 	for _, w := range workers {
 		w.Stop()

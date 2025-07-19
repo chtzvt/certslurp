@@ -468,6 +468,42 @@ func (c *etcdCluster) ReportShardFailed(ctx context.Context, jobID string, shard
 	return err
 }
 
+// ResetFailedShard resets the state of a single failed shard so it can be retried.
+// This is idempotent: if the shard isn't failed, it just ensures it's reset.
+func (c *etcdCluster) ResetFailedShard(ctx context.Context, jobID string, shardID int) error {
+	shardPrefix := c.ShardKey(jobID, shardID)
+	ops := []clientv3.Op{
+		clientv3.OpDelete(shardPrefix + "/done"),
+		clientv3.OpDelete(shardPrefix + "/retries"),
+		clientv3.OpDelete(shardPrefix + "/backoff_until"),
+		clientv3.OpDelete(shardPrefix + "/assignment"),
+		clientv3.OpDelete(shardPrefix + "/failed"),
+		clientv3.OpDelete(shardPrefix + "/in_progress"),
+	}
+	_, err := c.client.Txn(ctx).Then(ops...).Commit()
+	return err
+}
+
+// ResetFailedShards resets all permanently failed shards for a job.
+// Returns the list of shardIDs that were reset.
+func (c *etcdCluster) ResetFailedShards(ctx context.Context, jobID string) ([]int, error) {
+	statuses, err := c.GetShardAssignments(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	var resetIDs []int
+
+	for shardID, status := range statuses {
+		if status.Done && status.Failed {
+			if err := c.ResetFailedShard(ctx, jobID, shardID); err != nil {
+				return resetIDs, fmt.Errorf("failed to reset shard %d: %w", shardID, err)
+			}
+			resetIDs = append(resetIDs, shardID)
+		}
+	}
+	return resetIDs, nil
+}
+
 func (c *etcdCluster) ReportShardDone(ctx context.Context, jobID string, shardID int, manifest ShardManifest) error {
 	shardPrefix := c.ShardKey(jobID, shardID)
 	assignmentKey := shardPrefix + "/assignment"
@@ -528,6 +564,44 @@ func (c *etcdCluster) RenewShardLease(ctx context.Context, jobID string, shardID
 	txnResp, err := txn.Commit()
 	if err != nil || !txnResp.Succeeded {
 		return fmt.Errorf("failed to CAS-extend lease for shard %d", shardID)
+	}
+	return nil
+}
+
+func (c *etcdCluster) ReleaseShardLease(ctx context.Context, jobID string, shardID int, workerID string) error {
+	shardPrefix := c.ShardKey(jobID, shardID)
+	assignmentKey := shardPrefix + "/assignment"
+	inProgressKey := shardPrefix + "/in_progress"
+
+	// Fetch assignment
+	resp, err := c.client.Get(ctx, assignmentKey)
+	if err != nil {
+		return err
+	}
+	if len(resp.Kvs) == 0 {
+		// Already unassigned
+		return nil
+	}
+	var assign ShardAssignment
+	if err := json.Unmarshal(resp.Kvs[0].Value, &assign); err != nil {
+		return err
+	}
+	if assign.WorkerID != workerID {
+		return fmt.Errorf("release denied: worker %q does not own shard %d (owned by %q)", workerID, shardID, assign.WorkerID)
+	}
+
+	// Remove assignment and in_progress atomically (CAS)
+	cmp := clientv3.Compare(clientv3.Value(assignmentKey), "=", string(resp.Kvs[0].Value))
+	txn := c.client.Txn(ctx).If(cmp).Then(
+		clientv3.OpDelete(assignmentKey),
+		clientv3.OpDelete(inProgressKey),
+	)
+	txnResp, err := txn.Commit()
+	if err != nil {
+		return err
+	}
+	if !txnResp.Succeeded {
+		return fmt.Errorf("release race: assignment for shard %d changed", shardID)
 	}
 	return nil
 }

@@ -35,8 +35,11 @@ type Cluster interface {
 	GetShardAssignmentsWindow(ctx context.Context, jobID string, start, end int) (map[int]ShardAssignmentStatus, error)
 	GetShardStatus(ctx context.Context, jobID string, shardID int) (ShardStatus, error)
 	RenewShardLease(ctx context.Context, jobID string, shardID int, workerID string) error
+	ReleaseShardLease(ctx context.Context, jobID string, shardID int, workerID string) error
 	ReportShardDone(ctx context.Context, jobID string, shardID int, manifest ShardManifest) error
 	ReportShardFailed(ctx context.Context, jobID string, shardID int) error
+	ResetFailedShards(ctx context.Context, jobID string) ([]int, error)
+	ResetFailedShard(ctx context.Context, jobID string, shardID int) error
 	RequestShardSplit(ctx context.Context, jobID string, shardID int, newRanges []ShardRange) error
 	FindOrphanedShards(ctx context.Context, jobID string) ([]int, error)
 	ReassignOrphanedShards(ctx context.Context, jobID string, assignTo string) ([]int, error)

@@ -333,3 +333,115 @@ func TestRenewShardLease(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "assignment not found", "should fail to renew if not assigned")
 }
+
+func TestResetFailedShard(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	jobID := "resetshardjob"
+	shards := []cluster.ShardRange{{ShardID: 0, IndexFrom: 0, IndexTo: 100}}
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, shards))
+	workerID := "testworker"
+	require.NoError(t, cl.AssignShard(ctx, jobID, 0, workerID))
+
+	// Fail the shard permanently (retry > max)
+	for i := 0; i < cluster.MaxShardRetries+1; i++ {
+		require.NoError(t, cl.ReportShardFailed(ctx, jobID, 0))
+	}
+	stat, err := cl.GetShardStatus(ctx, jobID, 0)
+	require.NoError(t, err)
+	require.True(t, stat.Failed)
+	require.True(t, stat.Done)
+
+	// Reset it
+	require.NoError(t, cl.ResetFailedShard(ctx, jobID, 0))
+	// Should be completely unassigned, not done, not failed, ready to be assigned again
+	stat, err = cl.GetShardStatus(ctx, jobID, 0)
+	require.NoError(t, err)
+	require.False(t, stat.Done)
+	require.False(t, stat.Failed)
+	require.False(t, stat.Assigned)
+	require.Equal(t, 0, stat.Retries)
+	require.True(t, stat.BackoffUntil.IsZero())
+}
+
+func TestResetFailedShards(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	jobID := "resetallfailed"
+	shards := []cluster.ShardRange{
+		{ShardID: 0, IndexFrom: 0, IndexTo: 100},
+		{ShardID: 1, IndexFrom: 100, IndexTo: 200},
+		{ShardID: 2, IndexFrom: 200, IndexTo: 300},
+	}
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, shards))
+	workerID := "w"
+
+	// Fail two shards permanently
+	require.NoError(t, cl.AssignShard(ctx, jobID, 0, workerID))
+	require.NoError(t, cl.AssignShard(ctx, jobID, 1, workerID))
+	for i := 0; i < cluster.MaxShardRetries+1; i++ {
+		require.NoError(t, cl.ReportShardFailed(ctx, jobID, 0))
+		require.NoError(t, cl.ReportShardFailed(ctx, jobID, 1))
+	}
+	// Shard 2 remains healthy
+
+	// Reset all failed shards
+	resetIDs, err := cl.ResetFailedShards(ctx, jobID)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int{0, 1}, resetIDs)
+
+	// Both should now be resettable
+	for _, shardID := range resetIDs {
+		stat, err := cl.GetShardStatus(ctx, jobID, shardID)
+		require.NoError(t, err)
+		require.False(t, stat.Failed)
+		require.False(t, stat.Done)
+		require.False(t, stat.Assigned)
+		require.Equal(t, 0, stat.Retries)
+	}
+	// Unfailed shard was not affected
+	stat, err := cl.GetShardStatus(ctx, jobID, 2)
+	require.NoError(t, err)
+	require.False(t, stat.Failed)
+	require.False(t, stat.Done)
+	require.False(t, stat.Assigned)
+}
+
+func TestReleaseShardLease(t *testing.T) {
+	cl, cleanup := testcluster.SetupEtcdCluster(t)
+	defer cleanup()
+	ctx := context.Background()
+	jobID := "leasejob"
+	shards := []cluster.ShardRange{{ShardID: 0, IndexFrom: 0, IndexTo: 100}}
+	require.NoError(t, cl.BulkCreateShards(ctx, jobID, shards))
+
+	workerID := "workerA"
+	require.NoError(t, cl.AssignShard(ctx, jobID, 0, workerID))
+
+	// Confirm assigned
+	status, err := cl.GetShardStatus(ctx, jobID, 0)
+	require.NoError(t, err)
+	require.True(t, status.Assigned)
+	require.Equal(t, workerID, status.WorkerID)
+
+	// Release lease as owner
+	require.NoError(t, cl.ReleaseShardLease(ctx, jobID, 0, workerID))
+
+	// Assignment should be gone
+	status, err = cl.GetShardStatus(ctx, jobID, 0)
+	require.NoError(t, err)
+	require.False(t, status.Assigned)
+
+	// Can't release as another worker
+	require.NoError(t, cl.AssignShard(ctx, jobID, 0, workerID))
+	err = cl.ReleaseShardLease(ctx, jobID, 0, "otherWorker")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not own shard")
+
+	// Already unassigned: should be idempotent/no error
+	require.NoError(t, cl.ReleaseShardLease(ctx, jobID, 0, workerID))
+}
