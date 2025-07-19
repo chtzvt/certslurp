@@ -216,3 +216,47 @@ func (c *Client) GetShardStatus(ctx context.Context, jobID string, shardID int) 
 	}
 	return status, nil
 }
+
+// ResetFailedShards resets all failed shards for a job and returns the list of reset shard IDs.
+func (c *Client) ResetFailedShards(ctx context.Context, jobID string) ([]int, error) {
+	urlStr := c.BaseURL + "/api/jobs/" + url.PathEscape(jobID) + "/shards/reset-failed"
+	req, err := http.NewRequestWithContext(ctx, "POST", urlStr, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, parseAPIError(resp)
+	}
+	var out struct {
+		ResetShards []int `json:"reset_shards"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.ResetShards, nil
+}
+
+// ResetFailedShard resets a single failed shard by job and shard ID.
+func (c *Client) ResetFailedShard(ctx context.Context, jobID string, shardID int) error {
+	urlStr := c.BaseURL + "/api/jobs/" + url.PathEscape(jobID) + "/shards/" + strconv.Itoa(shardID) + "/reset-failed"
+	req, err := http.NewRequestWithContext(ctx, "POST", urlStr, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return parseAPIError(resp)
+	}
+	return nil
+}

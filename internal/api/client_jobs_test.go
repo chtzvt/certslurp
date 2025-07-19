@@ -110,3 +110,32 @@ func TestClient_GetShardStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "someworker", status.WorkerID)
 }
+
+func TestClient_ResetFailedShards(t *testing.T) {
+	// Simulate a response for the ResetFailedShards endpoint
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "POST", r.Method)
+		require.Contains(t, r.URL.Path, "/reset-failed")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"reset_shards": []int{0, 1}})
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "tok")
+	shards, err := client.ResetFailedShards(context.Background(), "jobid")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int{0, 1}, shards)
+}
+
+func TestClient_ResetFailedShard(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "POST", r.Method)
+		require.Contains(t, r.URL.Path, "/shards/0/reset-failed")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "tok")
+	err := client.ResetFailedShard(context.Background(), "jobid", 0)
+	require.NoError(t, err)
+}

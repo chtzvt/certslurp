@@ -344,3 +344,34 @@ func TestAPI_JobSubmission_BadInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestAPI_ResetFailedShards(t *testing.T) {
+	ts, cl, jobID := setupJobAPI(t)
+
+	// Mark some shards as failed for the job
+	_ = cl.BulkCreateShards(context.Background(), jobID, []cluster.ShardRange{
+		{ShardID: 0, IndexFrom: 0, IndexTo: 10},
+		{ShardID: 1, IndexFrom: 10, IndexTo: 20},
+	})
+
+	for i := 0; i < cluster.MaxShardRetries+1; i++ {
+		require.NoError(t, cl.ReportShardFailed(context.Background(), jobID, 0))
+		require.NoError(t, cl.ReportShardFailed(context.Background(), jobID, 1))
+	}
+
+	// Reset all failed shards
+	req, _ := http.NewRequest("POST", ts.URL+"/api/jobs/"+jobID+"/shards/reset-failed", nil)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out map[string][]int
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.Contains(t, out["reset_shards"], 0)
+	require.Contains(t, out["reset_shards"], 1)
+
+	// Reset single failed shard
+	req, _ = http.NewRequest("POST", ts.URL+"/api/jobs/"+jobID+"/shards/0/reset-failed", nil)
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+}

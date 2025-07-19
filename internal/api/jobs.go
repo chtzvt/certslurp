@@ -29,7 +29,7 @@ func RegisterJobHandlers(mux *http.ServeMux, cl cluster.Cluster) {
 	// Everything else (subresources)
 	mux.HandleFunc("/api/jobs/", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
-		parts := strings.SplitN(path, "/", 3)
+		parts := strings.Split(strings.Trim(path, "/"), "/")
 		id := parts[0]
 		if id == "" {
 			jsonError(w, http.StatusBadRequest, "missing job id")
@@ -69,6 +69,18 @@ func RegisterJobHandlers(mux *http.ServeMux, cl cluster.Cluster) {
 					return
 				}
 			}
+
+			if r.Method == "POST" {
+				if len(parts) == 3 && parts[2] == "reset-failed" {
+					handleResetFailedShards(w, r, cl, id)
+					return
+				}
+				if len(parts) == 4 && parts[1] == "shards" && parts[3] == "reset-failed" {
+					handleResetFailedShard(w, r, cl, id, parts[2])
+					return
+				}
+			}
+
 			jsonError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
@@ -170,6 +182,31 @@ func handleGetShardStatus(w http.ResponseWriter, r *http.Request, cl cluster.Clu
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(status)
+}
+
+func handleResetFailedShards(w http.ResponseWriter, r *http.Request, cl cluster.Cluster, jobID string) {
+	shards, err := cl.ResetFailedShards(r.Context(), jobID)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "failed to reset failed shards: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"reset_shards": shards,
+	})
+}
+
+func handleResetFailedShard(w http.ResponseWriter, r *http.Request, cl cluster.Cluster, jobID, shardIDStr string) {
+	shardID, err := strconv.Atoi(shardIDStr)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid shard id")
+		return
+	}
+	if err := cl.ResetFailedShard(r.Context(), jobID, shardID); err != nil {
+		jsonError(w, http.StatusInternalServerError, "failed to reset failed shard: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleGetJob(w http.ResponseWriter, r *http.Request, cl cluster.Cluster) {
