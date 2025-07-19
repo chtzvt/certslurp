@@ -30,7 +30,7 @@ const (
 	JobStateRunning   JobState = "running"
 	JobStateCompleted JobState = "completed"
 	JobStateCancelled JobState = "cancelled"
-	JobStateFailed    JobState = "cancelled"
+	JobStateFailed    JobState = "failed"
 )
 
 func (c *etcdCluster) SubmitJob(ctx context.Context, spec *job.JobSpec) (string, error) {
