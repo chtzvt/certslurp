@@ -14,16 +14,24 @@ import (
 	"github.com/chtzvt/certslurp/internal/job"
 )
 
-func jitterDuration() time.Duration {
+func (w *Worker) jitterDuration() time.Duration {
+	if w.DisableJitterAndSmoothingForTests {
+		return 0 * time.Second
+	}
+
 	min := 100 * time.Millisecond
 	max := 3 * time.Second
 
 	return min + time.Duration(rand.Int63n(int64(max-min)))
 }
 
-func maybeSleep() {
+func (w *Worker) maybeSleep() {
+	if w.DisableJitterAndSmoothingForTests {
+		return
+	}
+
 	if rand.Float64() < 0.05 { // 5% of the time
-		time.Sleep(jitterDuration() + 1*time.Second)
+		time.Sleep(w.jitterDuration() + 1*time.Second)
 	}
 }
 
@@ -83,7 +91,7 @@ func httpTransportForShard(cfg job.FetchConfig) (*http.Transport, time.Duration)
 }
 
 func (w *Worker) heartbeatLoop(ctx context.Context) {
-	base := jitterDuration() + 10*time.Second
+	base := w.jitterDuration() + 10*time.Second
 
 	for {
 		select {
@@ -91,8 +99,8 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 			return
 		case <-w.stopCh:
 			return
-		case <-time.After(base + jitterDuration()):
-			maybeSleep()
+		case <-time.After(base + w.jitterDuration()):
+			w.maybeSleep()
 			if err := w.Cluster.HeartbeatWorker(ctx, w.ID); err != nil {
 				w.Logger.Printf("heartbeat failed: %v", err)
 			}
@@ -101,7 +109,7 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 }
 
 func (w *Worker) metricsLoop(ctx context.Context) {
-	base := jitterDuration() + 10*time.Second
+	base := w.jitterDuration() + 10*time.Second
 
 	for {
 		select {
@@ -109,8 +117,8 @@ func (w *Worker) metricsLoop(ctx context.Context) {
 			return
 		case <-w.stopCh:
 			return
-		case <-time.After(base + jitterDuration()):
-			maybeSleep()
+		case <-time.After(base + w.jitterDuration()):
+			w.maybeSleep()
 			if err := w.Cluster.SendMetrics(ctx, w.ID, w.Metrics); err != nil {
 				w.Logger.Printf("SendMetrics failed: %v", err)
 			}
@@ -129,7 +137,7 @@ func (w *Worker) checkJobCancelled(ctx context.Context, jobID string) (bool, err
 
 // findAllClaimableShards returns up to batchSize claimable shards across all jobs.
 func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []ShardRef {
-	maybeSleep()
+	w.maybeSleep()
 	jobs, err := w.Cluster.ListJobs(ctx)
 	if err != nil {
 		w.Logger.Printf("error listing jobs: %v", err)
@@ -148,7 +156,7 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 	}
 
 	for _, job := range jobs {
-		maybeSleep()
+		w.maybeSleep()
 		shardCount, err := w.Cluster.GetShardCount(ctx, job.ID)
 		if err != nil || shardCount == 0 {
 			continue
@@ -160,7 +168,7 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 		for {
 			// Fallback: scan ALL
 			if shardCount < windowSize || emptyWindows >= maxEmptyWindows {
-				maybeSleep()
+				w.maybeSleep()
 				window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, 0, shardCount)
 				if len(claimable) < batchSize {
 					var stuck []int
@@ -187,7 +195,7 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 
 			// Standard random window
 			offset := rand.Intn(shardCount - windowSize + 1)
-			maybeSleep()
+			w.maybeSleep()
 			window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, offset, offset+windowSize)
 			if err != nil {
 				break
@@ -213,7 +221,7 @@ func (w *Worker) findAllClaimableShards(ctx context.Context, batchSize int) []Sh
 			if !lastWindowScanned && shardCount > windowSize {
 				lastWindowScanned = true
 				offset := shardCount - windowSize
-				maybeSleep()
+				w.maybeSleep()
 				window, err := w.Cluster.GetShardAssignmentsWindow(ctx, job.ID, offset, shardCount)
 				if err == nil {
 					for sID, stat := range window {
@@ -252,7 +260,7 @@ func (w *Worker) tryAssignShardWithRetry(ctx context.Context, jobID string, shar
 		if strings.Contains(msg, "assignment race") ||
 			strings.Contains(msg, "already assigned") ||
 			strings.Contains(msg, "in backoff") {
-			backoff := w.PollPeriod + jitterDuration()
+			backoff := w.PollPeriod + w.jitterDuration()
 			time.Sleep(backoff)
 			lastErr = err
 			continue

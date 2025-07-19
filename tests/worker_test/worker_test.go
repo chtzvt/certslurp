@@ -71,6 +71,7 @@ func TestCluster_WorkerFailureRecovery(t *testing.T) {
 	killed := int32(0)
 	for i := 0; i < workerCount; i++ {
 		w := worker.NewWorker(cl, fmt.Sprintf("fail-%d", i), logger)
+		w.DisableJitterAndSmoothingForTests = true
 		workers[i] = w
 		go func(idx int, w *worker.Worker) {
 			workerCtx, cancel := context.WithCancel(ctx)

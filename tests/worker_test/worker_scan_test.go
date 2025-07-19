@@ -42,6 +42,7 @@ func TestWorker_StreamShard_StubbedCTLog(t *testing.T) {
 	defer cleanup()
 
 	w := worker.NewWorker(cluster, "worker-1", nil)
+	w.DisableJitterAndSmoothingForTests = true
 
 	ctx := context.Background()
 	entriesCh := make(chan *ct.RawLogEntry, 10)

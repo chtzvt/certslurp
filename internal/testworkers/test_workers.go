@@ -21,6 +21,7 @@ func RunWorkers(ctx context.Context, t *testing.T, cl cluster.Cluster, jobID str
 	for i := 0; i < workerCount; i++ {
 		id := "worker-" + testutil.RandString(5)
 		w := worker.NewWorker(cl, id, logger)
+		w.DisableJitterAndSmoothingForTests = true
 		// Aggressive settings for testing
 		w.PollPeriod = 50 * time.Millisecond
 		w.BatchSize = 32

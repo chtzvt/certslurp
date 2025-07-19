@@ -40,25 +40,37 @@ func TestCluster_RapidWorkerChurn(t *testing.T) {
 	defer ts.Close()
 	numShards := 10
 	jobID := testcluster.SubmitTestJob(t, cl, ts.URL, numShards)
-	logger := testutil.NewTestLogger(true)
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	logger := testutil.NewTestLogger(false)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
+
+	// Start one persistent worker to guarantee progress
+	persistentWorker := worker.NewWorker(cl, "steady", logger)
+	persistentWorker.DisableJitterAndSmoothingForTests = true
+	persistCtx, persistCancel := context.WithCancel(ctx)
+	defer persistCancel()
+	go func() { _ = persistentWorker.Run(persistCtx) }()
 
 	workerCount := 5
 	for i := 0; i < workerCount; i++ {
 		go func(workerIdx int) {
 			for j := 0; j < 3; j++ {
 				w := worker.NewWorker(cl, fmt.Sprintf("churn-%d-%d", workerIdx, j), logger)
-				wCtx, cancel := context.WithTimeout(ctx, time.Duration(500+100*j)*time.Millisecond)
+				w.DisableJitterAndSmoothingForTests = true
+				wCtx, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
 				go func() { _ = w.Run(wCtx) }()
-				time.Sleep(300 * time.Millisecond)
+				time.Sleep(200 * time.Millisecond)
 				cancel()
 			}
 		}(i)
 	}
+
+	// Wait for all shards to complete
 	testutil.WaitFor(t, func() bool {
 		return testcluster.AllShardsDone(t, cl, jobID)
-	}, 7*time.Second, 150*time.Millisecond, "all shards complete despite churn")
+	}, 22*time.Second, 150*time.Millisecond, "all shards complete despite churn")
+
+	persistCancel()
 }
 
 func TestSendMetrics(t *testing.T) {

@@ -33,8 +33,9 @@ type Worker struct {
 	stopped chan struct{}
 	wg      sync.WaitGroup
 
-	mainLoopErrorCount int64
-	mainLoopBackoff    time.Duration
+	mainLoopErrorCount                int64
+	mainLoopBackoff                   time.Duration
+	DisableJitterAndSmoothingForTests bool
 }
 
 type ShardRef struct {
@@ -72,8 +73,8 @@ func (w *Worker) Run(ctx context.Context) error {
 		hostName = "unknown.host"
 	}
 
-	maybeSleep()
-	time.Sleep(jitterDuration())
+	w.maybeSleep()
+	time.Sleep(w.jitterDuration())
 	_, err = w.Cluster.RegisterWorker(ctx, cluster.WorkerInfo{ID: w.ID, Host: hostName})
 	if err != nil {
 		return err
@@ -84,7 +85,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	go w.heartbeatLoop(ctx)
 	go w.metricsLoop(ctx)
 
-	time.Sleep(jitterDuration() + time.Duration(rand.Int63n(int64(w.PollPeriod))))
+	time.Sleep(w.jitterDuration() + time.Duration(rand.Int63n(int64(w.PollPeriod))))
 
 	sem := make(chan struct{}, w.MaxParallel)
 	for {
@@ -109,7 +110,7 @@ func (w *Worker) Run(ctx context.Context) error {
 						}
 					}
 					w.Logger.Printf("worker: backing off for %s due to repeated errors", w.mainLoopBackoff)
-					time.Sleep(jitterDuration() + w.mainLoopBackoff)
+					time.Sleep(w.jitterDuration() + w.mainLoopBackoff)
 				}
 			} else {
 				w.mainLoopErrorCount = 0
@@ -120,7 +121,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			claimable := w.findAllClaimableShards(ctx, w.BatchSize)
 			lastErr = nil
 			if len(claimable) == 0 {
-				time.Sleep(jitterDuration() + w.PollPeriod)
+				time.Sleep(w.jitterDuration() + w.PollPeriod)
 				continue
 			}
 			for _, ref := range claimable {
@@ -138,7 +139,7 @@ func (w *Worker) Run(ctx context.Context) error {
 				}(ref.JobID, ref.ShardID)
 			}
 			// Only wait poll period after all launches, to avoid hammering etcd
-			time.Sleep(jitterDuration() + w.PollPeriod + time.Duration(rand.Int63n(int64(w.PollPeriod))))
+			time.Sleep(w.jitterDuration() + w.PollPeriod + time.Duration(rand.Int63n(int64(w.PollPeriod))))
 		}
 	}
 }

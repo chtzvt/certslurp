@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/chtzvt/certslurp/internal/cluster"
@@ -13,36 +14,41 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 	start := time.Now()
 	var shardReported bool // track if we've reported Done/Failed
 	defer func() {
-		// Recover from panics to avoid leaving shard stuck
 		if r := recover(); r != nil {
 			w.Logger.Printf("panic in shard processing: %v", r)
 			_ = w.Cluster.ReportShardFailed(context.Background(), jobID, shardID)
 			w.Metrics.IncFailed()
 			shardReported = true
-		}
-		// If not reported, mark as failed (covers context cancel or other silent exit)
-		if !shardReported {
-			_ = w.Cluster.ReportShardFailed(context.Background(), jobID, shardID)
-			w.Metrics.IncFailed()
+		} else if !shardReported {
+			if ctx.Err() != nil {
+				// Graceful shutdown/worker exit: just release lease, do not report failure
+				_ = w.Cluster.ReleaseShardLease(ctx, jobID, shardID, w.ID)
+				w.Logger.Printf("released shard %d lease on context cancel", shardID)
+				fmt.Printf("released shard %d lease on context cancel", shardID)
+			} else {
+				// Other error, mark as failed, do not release lease
+				_ = w.Cluster.ReportShardFailed(context.Background(), jobID, shardID)
+				w.Metrics.IncFailed()
+			}
 		}
 		w.Metrics.AddProcessingTime(time.Since(start))
 	}()
 
-	maybeSleep()
+	w.maybeSleep()
 	status, err := w.Cluster.GetShardStatus(ctx, jobID, shardID)
 	if err != nil {
 		w.Logger.Printf("get shard status failed: %v", err)
 		return
 	}
 
-	maybeSleep()
+	w.maybeSleep()
 	jobInfo, err := w.Cluster.GetJob(ctx, jobID)
 	if err != nil {
 		w.Logger.Printf("failed to get job spec: %v", err)
 		return
 	}
 
-	maybeSleep()
+	w.maybeSleep()
 	cancelled, err := w.checkJobCancelled(ctx, jobID)
 	if err != nil {
 		w.Logger.Printf("job cancelled check failed: %v", err)
@@ -59,7 +65,7 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 		return
 	}
 
-	ticker := time.NewTicker(jitterDuration() + time.Duration(w.LeaseSecs)*time.Second/2)
+	ticker := time.NewTicker(w.jitterDuration() + time.Duration(w.LeaseSecs)*time.Second/2)
 	leaseRenewal := make(chan struct{})
 	defer close(leaseRenewal)
 
@@ -67,7 +73,7 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 		for {
 			select {
 			case <-ticker.C:
-				maybeSleep()
+				w.maybeSleep()
 				err := w.Cluster.RenewShardLease(ctx, jobID, shardID, w.ID)
 				if err != nil {
 					w.Logger.Printf("failed to renew lease for shard %d: %v", shardID, err)
@@ -105,7 +111,7 @@ func (w *Worker) processShardLoop(ctx context.Context, jobID string, shardID int
 	}
 
 	manifest := cluster.ShardManifest{}
-	maybeSleep()
+	w.maybeSleep()
 	if err := w.Cluster.ReportShardDone(ctx, jobID, shardID, manifest); err != nil {
 		w.Logger.Printf("report done failed: %v", err)
 		return
