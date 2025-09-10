@@ -5,6 +5,8 @@ certslurpctl
 slurpload
 !slurpload/
 
+cover.*
+
 *.tfvars
 .terraform/
 *.lock.hcl

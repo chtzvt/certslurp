@@ -1,5 +1,5 @@
 image:
-  repository: <youracr>.azurecr.io/certslurpd
+  repository: ghcr.io/chtzvt/certslurp:latest
   tag: "latest"
   pullPolicy: Always
 

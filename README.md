@@ -2,7 +2,8 @@
 
 certslurp is a distributed system for high-performance scraping and analysis of Certificate Transparency (CT) logs. It is designed to handle billions of CT entries at multi-gigabit per second throughput, while remaining flexible, fault-tolerant, and easy to operate across a range of deployment models.
 
-Certslurp has been used reliably in production to process over 230 TB of raw Certificate Transparency log entries, across tens of billions of certificates, at sustained throughputs exceeding 3 Gbps.
+> [!NOTE]
+> Certslurp has been used in production to reliably process over 230 TB of raw Certificate Transparency log entries, across tens of billions of certificates, at sustained throughputs exceeding 3 Gbps.
 
 Certificate Transparency logs are a firehose of cryptographic data: billions of X.509 certificates, updated continuously. Operating at this scale requires bringing the following principles together, making it possible to scrape, filter, and analyze the CT ecosystem as if it were just another data stream.
 

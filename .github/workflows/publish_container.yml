@@ -1,0 +1,42 @@
+name: Publish Certslurp Container Image
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-certslurp:
+    name: Build and Publish Certslurp
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: GHCR Login
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Build and Push
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file Dockerfile.certslurpd \
+            --tag ghcr.io/chtzvt/certslurp:latest \
+            --tag ghcr.io/chtzvt/certslurp:${{ github.event.release.tag_name }} \
+            --label org.opencontainers.image.source=${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            --label org.opencontainers.image.version=${{ github.event.release.tag_name }} \
+            --push \
+            .
