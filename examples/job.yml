@@ -12,13 +12,29 @@ options:
     chunk_records: 512
 
     extractor: cert_fields
+
     extractor_options:
       cert_fields: "*"
       log_fields: "*"
 
-    transformer: jsonl
+    transformer: jsonl # cbor, csv, raw, etc. are also available
 
-    sink: "disk"
-    sink_options:
-      path: "/Users/charlton/Desktop/certslurp_demo/out"
-      compression: "zstd"
+
+    #sink: "azureblob"
+    #sink_options:
+    #  account: "<your storage account>"
+    #  container: "<your container>"
+    #  prefix: "your/prefix/"
+    #  compression: "zstd"
+    #  access_key_secret: "AZURE_BLOB_STORAGE_KEY" # Don't set this to your actual secret! It's a pointer to the value in the secret store.
+
+    #sink: "s3"
+    #sink_options:
+    #  compression: "zstd"
+    #  bucket: "<your bucket>"
+    #  region: "auto"
+    #  prefix: "/your/prefix"
+    #  endpoint: "<optionally specify the endpoint (e.g. if using Cloudflare R2)>"
+    #  disable_checksums: true # Set this to true if using an S3-compatible third-party API
+    #  access_key_id_secret: "S3_ACCESS_KEY_ID" # Don't set this to your actual secret! It's a pointer to the value in the secret store.
+    #  access_key_secret: "S3_ACCESS_KEY_SECRET" # Don't set this to your actual secret! It's a pointer to the value in the secret store.

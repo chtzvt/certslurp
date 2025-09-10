@@ -4,3 +4,9 @@ certslurpctl
 !certslurpctl/
 slurpload
 !slurpload/
+
+*.tfvars
+.terraform/
+*.lock.hcl
+*.tfstate
+*.tfstate.*
