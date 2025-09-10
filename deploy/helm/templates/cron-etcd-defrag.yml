@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etcd-defrag
+spec:
+  schedule: "0 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: etcd-defrag
+              image: bitnami/etcd:3.5.17
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  echo "Starting etcd compaction/defrag at $(date)"
+
+                  HOSTS=$(getent hosts etcd-headless.default.svc.cluster.local | awk '{print $1}' | sort | uniq)
+                  ENDPOINTS=""
+                  for h in $HOSTS; do
+                    ENDPOINTS="$ENDPOINTS http://$h:2379"
+                  done
+                  echo "Discovered endpoints: $ENDPOINTS"
+
+                  for ep in $ENDPOINTS; do
+                    echo "Compacting $ep"
+                    etcdctl --user root:"$ETCD_ROOT_PASSWORD" --endpoints "$ep" compact 0 || echo "Warning: compact failed for $ep"
+                    echo "Defragging $ep"
+                    etcdctl --user root:"$ETCD_ROOT_PASSWORD" --endpoints "$ep" defrag || echo "Warning: defrag failed for $ep"
+                  done
+
+                  echo "Finished etcd defrag at $(date)"
+              env:
+                - name: ETCD_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: etcd-root-secret
+                      key: root-password

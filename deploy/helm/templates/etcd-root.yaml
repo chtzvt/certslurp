@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: etcd-root-secret
+type: Opaque
+stringData:
+  root-password: {{ .Values.etcd.root_password }}

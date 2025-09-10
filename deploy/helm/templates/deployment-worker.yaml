@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: certslurpd-worker
+spec:
+  replicas: {{ .Values.worker.replicas | default 100 }}
+  selector:
+    matchLabels:
+      app: certslurpd-worker
+  template:
+    metadata:
+      labels:
+        app: certslurpd-worker
+    spec:
+      initContainers:
+        - name: wait-for-etcd-user
+          image: bitnami/etcd:3.5.17
+          env:
+            - name: ETCD_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: certslurpd-etcd-creds
+                  key: username
+            - name: ETCD_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: certslurpd-etcd-creds
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for etcd user to be available..."
+              ENDPOINTS="http://etcd-0.etcd-headless.default.svc.cluster.local:2379,http://etcd-1.etcd-headless.default.svc.cluster.local:2379,http://etcd-2.etcd-headless.default.svc.cluster.local:2379"
+              for i in $(seq 1 120); do
+                if etcdctl --user "${ETCD_USERNAME}:${ETCD_PASSWORD}" --endpoints $ENDPOINTS get / >/dev/null 2>&1; then
+                  echo "etcd user is ready!"
+                  exit 0
+                fi
+                echo "Waiting for etcd user to be ready... ($i/60)"
+                sleep 2
+              done
+              echo "Timeout waiting for etcd user to be created"
+              exit 1
+      containers:
+        - name: certslurpd-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - worker
+          env:
+            - name: CERTSLURPD_MODE
+              value: "worker"
+            - name: CERTSLURPD_ETCD__ENDPOINTS
+              value: "http://etcd-0.etcd-headless.default.svc.cluster.local:2379,http://etcd-1.etcd-headless.default.svc.cluster.local:2379,http://etcd-2.etcd-headless.default.svc.cluster.local:2379"
+            - name: CERTSLURPD_ETCD__USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: certslurpd-etcd-creds
+                  key: username
+            - name: CERTSLURPD_ETCD__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: certslurpd-etcd-creds
+                  key: password
+            - name: CERTSLURPD_ETCD__PREFIX
+              value: "{{ .Values.certslurp.cluster_prefix | default "/certslurp" }}"
+            - name: CERTSLURPD_WORKER__POLL_PERIOD
+              value: "{{ .Values.worker.poll_period | default "10s" }}"
+            - name: CERTSLURPD_WORKER__PARALLELISM
+              value: "{{ .Values.worker.parallelism | default "4" }}"
+            - name: CERTSLURPD_SECRETS__CLUSTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: certslurpd-cluster-creds
+                  key: cluster_key
