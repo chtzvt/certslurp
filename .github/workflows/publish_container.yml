@@ -8,6 +8,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish-certslurp:
     name: Build and Publish Certslurp
@@ -24,19 +28,54 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
-        
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Build and Push
         run: |
-          docker buildx build \
+          set -euo pipefail
+          export VERSION="${{ github.event.release.tag_name }}"
+          export REPO="${{ github.repository }}"
+          export GIT_COMMIT="${{ github.sha }}"
+          export BUILD_DATE=$(date -u +%FT%TZ)
+
+          # Common cache args
+          CACHE_TO="type=gha,mode=max"
+          CACHE_FROM="type=gha"
+
+          docker buildx build --target certslurpctl \
             --platform linux/amd64,linux/arm64 \
-            --file Dockerfile.certslurpd \
-            --tag ghcr.io/chtzvt/certslurp:latest \
-            --tag ghcr.io/chtzvt/certslurp:${{ github.event.release.tag_name }} \
-            --label org.opencontainers.image.source=${{ github.repository }} \
-            --label org.opencontainers.image.revision=${{ github.sha }} \
-            --label org.opencontainers.image.version=${{ github.event.release.tag_name }} \
-            --push \
-            .
+            --build-arg VERSION="$VERSION" --build-arg GIT_COMMIT="$GIT_COMMIT" --build-arg BUILD_DATE="$BUILD_DATE" \
+            --label org.opencontainers.image.source="$REPO" \
+            --label org.opencontainers.image.version="$VERSION" \
+            --label org.opencontainers.image.revision="$GIT_COMMIT" \
+            --label org.opencontainers.image.created="$BUILD_DATE" \
+            --cache-from "$CACHE_FROM" --cache-to "$CACHE_TO" \
+            --provenance=true --sbom=true \
+            -t ghcr.io/chtzvt/certslurpctl:"$VERSION" -t ghcr.io/chtzvt/certslurpctl:latest \
+            --push .
+
+          docker buildx build --target certslurp \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$VERSION" --build-arg GIT_COMMIT="$GIT_COMMIT" --build-arg BUILD_DATE="$BUILD_DATE" \
+            --label org.opencontainers.image.source="$REPO" \
+            --label org.opencontainers.image.version="$VERSION" \
+            --label org.opencontainers.image.revision="$GIT_COMMIT" \
+            --label org.opencontainers.image.created="$BUILD_DATE" \
+            --cache-from "$CACHE_FROM" --cache-to "$CACHE_TO" \
+            --provenance=true --sbom=true \
+            -t ghcr.io/chtzvt/certslurp:"$VERSION" -t ghcr.io/chtzvt/certslurp:latest \
+            --push .
+
+          docker buildx build --target certslurp-debug \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$VERSION" --build-arg GIT_COMMIT="$GIT_COMMIT" --build-arg BUILD_DATE="$BUILD_DATE" \
+            --label org.opencontainers.image.source="$REPO" \
+            --label org.opencontainers.image.version="$VERSION" \
+            --label org.opencontainers.image.revision="$GIT_COMMIT" \
+            --label org.opencontainers.image.created="$BUILD_DATE" \
+            --cache-from "$CACHE_FROM" --cache-to "$CACHE_TO" \
+            --provenance=true --sbom=true \
+            -t ghcr.io/chtzvt/certslurp-debug:"$VERSION" -t ghcr.io/chtzvt/certslurp-debug:latest \
+            --push .

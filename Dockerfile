@@ -36,6 +36,8 @@ ARG VERSION GIT_COMMIT BUILD_DATE
 LABEL org.opencontainers.image.vendor="Charlton Trezevant" \
     org.opencontainers.image.title="certslurp" \
     org.opencontainers.image.source="https://github.com/chtzvt/certslurp" \
+    org.opencontainers.image.description="Fetch billions of Certificate Transparency log entries at scale" \
+    org.opencontainers.image.licenses="MIT" \
     org.opencontainers.image.version=$VERSION \
     org.opencontainers.image.revision=$GIT_COMMIT \
     org.opencontainers.image.created=$BUILD_DATE
@@ -46,6 +48,7 @@ WORKDIR /home/nonroot
 COPY --from=build /out/certslurpctl /usr/local/bin/certslurpctl
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/certslurpctl"]
+CMD ["--help"]
 
 # certslurp (head/worker)
 FROM base AS certslurp
@@ -57,7 +60,13 @@ ENTRYPOINT ["/usr/local/bin/certslurpd"]
 # certslurpd-debug (optional)
 # Includes useful ops/debugging tools
 FROM alpine:latest AS certslurp-debug
-RUN adduser -D -g '' certslurp && apk add --no-cache ca-certificates curl busybox-extras
+ARG VERSION GIT_COMMIT BUILD_DATE
+LABEL org.opencontainers.image.vendor="Charlton Trezevant" \
+    org.opencontainers.image.title="certslurp-debug" \
+    org.opencontainers.image.version=$VERSION \
+    org.opencontainers.image.revision=$GIT_COMMIT \
+    org.opencontainers.image.created=$BUILD_DATE
+RUN adduser -D -g '' certslurp && apk add --no-cache ca-certificates curl busybox-extras bash jq bind-tools iputils
 WORKDIR /home/certslurp
 COPY --from=build /out/certslurpd /usr/local/bin/certslurpd
 COPY --from=build /out/certslurpctl /usr/local/bin/certslurpctl
