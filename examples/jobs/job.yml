@@ -3,7 +3,7 @@ note: Example CT log job
 log_uri: https://ct.googleapis.com/logs/us1/argon2025h1/
 options:
   fetch:
-    fetch_size: 128
+    fetch_size: 10
     fetch_workers: 1
     index_start: 101000000
     index_end: 103000000
@@ -19,6 +19,7 @@ options:
 
     transformer: jsonl # cbor, csv, raw, etc. are also available
 
+    sink: stdout
 
     #sink: "azureblob"
     #sink_options:
