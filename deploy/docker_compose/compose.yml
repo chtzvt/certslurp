@@ -1,0 +1,166 @@
+name: certslurp-local
+services:
+  etcd:
+    image: bitnamilegacy/etcd:3.5.17
+    container_name: etcd
+    restart: unless-stopped
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "no"
+      ETCD_ROOT_PASSWORD: ${ETCD_ROOT_PASSWORD:-changeme}
+      ETCD_NAME: etcd
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+      ETCD_INITIAL_CLUSTER: etcd=http://etcd:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_AUTO_COMPACTION_MODE: periodic
+      ETCD_AUTO_COMPACTION_RETENTION: 15m
+      ETCD_ELECTION_TIMEOUT: "5000"
+      ETCD_HEARTBEAT_INTERVAL: "500"
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd-data:/bitnami/etcd
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "ETCDCTL_API=3 etcdctl --user root:${ETCD_ROOT_PASSWORD} --endpoints http://localhost:2379 endpoint health | grep -q healthy",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [certslurp]
+
+  etcd-bootstrap:
+    image: bitnamilegacy/etcd:3.5.17
+    depends_on:
+      etcd:
+        condition: service_healthy
+    environment:
+      ETCD_ROOT_PASSWORD: ${ETCD_ROOT_PASSWORD:-changeme}
+      CERTSLURPD_USERNAME: ${CERTSLURPD_USERNAME:-certslurp}
+      CERTSLURPD_PASSWORD: ${CERTSLURPD_PASSWORD:-s3cr3t}
+      ETCD_ENDPOINTS: ${ETCD_ENDPOINTS:-http://etcd:2379}
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - |
+        set -euo pipefail
+        echo "Bootstrapping etcd user/role..."
+        for i in {1..60}; do
+          if /opt/bitnami/etcd/bin/etcdctl --user root:"$ETCD_ROOT_PASSWORD" --endpoints "$ETCD_ENDPOINTS" endpoint health >/dev/null 2>&1; then break; fi
+          sleep 2
+        done
+        /opt/bitnami/etcd/bin/etcdctl --user root:"$ETCD_ROOT_PASSWORD" --endpoints "$ETCD_ENDPOINTS" user add "$CERTSLURPD_USERNAME" --new-user-password="$CERTSLURPD_PASSWORD" || true
+        /opt/bitnami/etcd/bin/etcdctl --user root:"$ETCD_ROOT_PASSWORD" --endpoints "$ETCD_ENDPOINTS" role add certslurpd_role || true
+        /opt/bitnami/etcd/bin/etcdctl --user root:"$ETCD_ROOT_PASSWORD" --endpoints "$ETCD_ENDPOINTS" user grant-role "$CERTSLURPD_USERNAME" certslurpd_role || true
+        /opt/bitnami/etcd/bin/etcdctl --user root:"$ETCD_ROOT_PASSWORD" --endpoints "$ETCD_ENDPOINTS" role grant-permission certslurpd_role --prefix=true readwrite / || true
+        /opt/bitnami/etcd/bin/etcdctl --user root:"$ETCD_ROOT_PASSWORD" --endpoints "$ETCD_ENDPOINTS" auth enable || true
+        echo "Done"
+    restart: "no"
+    networks: [certslurp]
+    profiles: ["bootstrap"]
+
+  head:
+    build:
+      context: ../../.
+      target: certslurp
+      args:
+        VERSION: ${VERSION:-v0.0.0-local}
+        GIT_COMMIT: ${GIT_COMMIT:-dirty}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    image: ghcr.io/chtzvt/certslurp:${VERSION:-v0.0.0-local}
+    container_name: certslurp-head
+    depends_on:
+      etcd:
+        condition: service_healthy
+    environment:
+      CERTSLURPD_MODE: head
+      CERTSLURPD_ETCD__ENDPOINTS: http://etcd:2379
+      CERTSLURPD_ETCD__USERNAME: ${CERTSLURPD_USERNAME:-certslurp}
+      CERTSLURPD_ETCD__PASSWORD: ${CERTSLURPD_PASSWORD:-s3cr3t}
+      CERTSLURPD_ETCD__PREFIX: /certslurp
+      CERTSLURPD_API__LISTEN_ADDR: :8080
+      CERTSLURPD_SECRETS__CLUSTER_KEY: ${CERTSLURPD_CLUSTER_KEY:-dev-cluster-key}
+      CERTSLURPD_API__AUTH_TOKENS: ${CERTSLURPD_API_TOKENS:-slurpsecret}
+    command: ["head"]
+    ports:
+      - "8080:8080"
+    networks: [certslurp]
+
+  worker-1:
+    image: ghcr.io/chtzvt/certslurp:${VERSION:-v0.0.0-local}
+    build:
+      context: ../../.
+      target: certslurp
+      args:
+        VERSION: ${VERSION:-v0.0.0-local}
+        GIT_COMMIT: ${GIT_COMMIT:-dirty}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    depends_on:
+      head:
+        condition: service_started
+    environment:
+      CERTSLURPD_MODE: worker
+      CERTSLURPD_ETCD__ENDPOINTS: http://etcd:2379
+      CERTSLURPD_ETCD__USERNAME: ${CERTSLURPD_USERNAME:-certslurp}
+      CERTSLURPD_ETCD__PASSWORD: ${CERTSLURPD_PASSWORD:-s3cr3t}
+      CERTSLURPD_ETCD__PREFIX: /certslurp
+      CERTSLURPD_WORKER__POLL_PERIOD: 10s
+      CERTSLURPD_WORKER__PARALLELISM: "4"
+      CERTSLURPD_SECRETS__CLUSTER_KEY: ${CERTSLURPD_CLUSTER_KEY:-dev-cluster-key}
+    command: ["worker"]
+    networks: [certslurp]
+
+  worker-2:
+    image: ghcr.io/chtzvt/certslurp:${VERSION:-v0.0.0-local}
+    build:
+      context: ../../.
+      target: certslurp
+      args:
+        VERSION: ${VERSION:-v0.0.0-local}
+        GIT_COMMIT: ${GIT_COMMIT:-dirty}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    depends_on:
+      head:
+        condition: service_started
+    environment:
+      CERTSLURPD_MODE: worker
+      CERTSLURPD_ETCD__ENDPOINTS: http://etcd:2379
+      CERTSLURPD_ETCD__USERNAME: ${CERTSLURPD_USERNAME:-certslurp}
+      CERTSLURPD_ETCD__PASSWORD: ${CERTSLURPD_PASSWORD:-s3cr3t}
+      CERTSLURPD_ETCD__PREFIX: /certslurp
+      CERTSLURPD_WORKER__POLL_PERIOD: 10s
+      CERTSLURPD_WORKER__PARALLELISM: "4"
+      CERTSLURPD_SECRETS__CLUSTER_KEY: ${CERTSLURPD_CLUSTER_KEY:-dev-cluster-key}
+    command: ["worker"]
+    networks: [certslurp]
+
+  ctl:
+    build:
+      context: ../../.
+      target: certslurp-debug
+      args:
+        VERSION: ${VERSION:-v0.0.0-local}
+        GIT_COMMIT: ${GIT_COMMIT:-dirty}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    environment:
+      CERTSLURP_API_URL: ${CERTSLURP_API_URL:-http://head:8080}
+      CERTSLURP_CLUSTER_KEY: ${CERTSLURPD_CLUSTER_KEY:-dev-cluster-key}
+      CERTSLURP_API_TOKEN: ${CERTSLURPD_API_TOKENS:-slurpsecret}
+    image: ghcr.io/chtzvt/certslurp-debug:${VERSION:-v0.0.0-local}
+    stdin_open: true
+    tty: true
+    command: ["/bin/sh"]
+    networks: [certslurp]
+    profiles: ["debug"]
+    volumes:
+      - ../../:/certslurp:cached
+
+networks:
+  certslurp: {}
+
+volumes:
+  etcd-data: {}
