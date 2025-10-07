@@ -22,7 +22,7 @@ etcd:
   user: certslurpapp
   user_password: s3cr3t # Deploying certslurp? Change this!
 
-  image: bitnami/etcd:3.5.17
+  image: bitnamilegacy/etcd:3.5.17
   replicas: 3
   storage:
     enabled: true
