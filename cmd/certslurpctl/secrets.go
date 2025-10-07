@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/chtzvt/certslurp/internal/api"
@@ -14,21 +15,37 @@ import (
 	"golang.org/x/crypto/nacl/secretbox"
 )
 
-func loadClusterKey(path string) ([32]byte, error) {
-	var clusterKey [32]byte
-	b64, err := os.ReadFile(path)
-	if err != nil {
-		return clusterKey, err
+func loadClusterKey(path string, keyFromEnv string) ([32]byte, error) {
+	var out [32]byte
+	var b64 []byte
+	if keyFromEnv != "" {
+		b64 = []byte(keyFromEnv)
+	} else {
+		if path == "" {
+			return out, fmt.Errorf("no cluster key provided: set --cluster-key (or $CERTSLURP_CLUSTER_KEY) or --cluster-key-file")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return out, err
+		}
+		b64 = data
 	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(b64)))
+
+	s := strings.TrimSpace(string(b64))
+	raw, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return clusterKey, err
+		if raw, err = base64.RawStdEncoding.DecodeString(s); err != nil {
+			return out, fmt.Errorf("cluster key must be base64 of 32 bytes: %w", err)
+		}
 	}
 	if len(raw) != 32 {
-		return clusterKey, fmt.Errorf("invalid cluster key length: got %d, want 32", len(raw))
+		return out, fmt.Errorf("invalid cluster key length: got %d, want 32", len(raw))
 	}
-	copy(clusterKey[:], raw)
-	return clusterKey, nil
+	copy(out[:], raw)
+	for i := range raw {
+		raw[i] = 0
+	}
+	return out, nil
 }
 
 func secretsPendingCmd() *cobra.Command {
@@ -68,6 +85,10 @@ func secretsGenClusterKeyCmd() *cobra.Command {
 				return nil
 			}
 
+			if err := os.MkdirAll(filepath.Dir(keyFile), 0o700); err != nil {
+				return fmt.Errorf("failed to create key directory: %w", err)
+			}
+
 			err = os.WriteFile(keyFile, []byte(encodedKey), 0o600)
 			if err != nil {
 				return fmt.Errorf("failed to write key file: %w", err)
@@ -86,10 +107,6 @@ func secretsApprovalCmd() *cobra.Command {
 		Use:   "approve",
 		Short: "Approve a node for secret store access",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if keyFile == "" {
-				return fmt.Errorf("missing required --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
-			}
-
 			nodeID, _ := cmd.Flags().GetString("node-id")
 
 			client := api.NewClient(apiURL, apiToken)
@@ -129,8 +146,8 @@ func secretsAddCmd() *cobra.Command {
 		Short: "Add or update a secret (reads value from stdin)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if keyFile == "" {
-				return fmt.Errorf("missing required --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
+			if keyFile == "" && clusterKey == "" {
+				return fmt.Errorf("missing required --cluster-key (or $CERTSLURP_CLUSTER_KEY) or --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
 			}
 
 			val, err := io.ReadAll(os.Stdin)
@@ -138,13 +155,13 @@ func secretsAddCmd() *cobra.Command {
 				return err
 			}
 
-			clusterKey, err := loadClusterKey(keyFile)
+			ck, err := loadClusterKey(keyFile, clusterKey)
 			if err != nil {
-				return fmt.Errorf("invalid cluster key (base64): %w", err)
+				return fmt.Errorf("failed to load cluster key (env/file): %w", err)
 			}
 
 			// Encrypt the value
-			enc := secrets.EncryptValue(clusterKey, val)
+			enc := secrets.EncryptValue(ck, val)
 
 			ctx := context.Background()
 			client := cliClient()
@@ -182,13 +199,13 @@ func secretsGetCmd() *cobra.Command {
 		Short: "Get (decrypted) secret value",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if keyFile == "" {
-				return fmt.Errorf("missing required --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
+			if keyFile == "" && clusterKey == "" {
+				return fmt.Errorf("missing required --cluster-key (or $CERTSLURP_CLUSTER_KEY) or --cluster-key-file (or $CERTSLURP_CLUSTER_KEY_FILE)")
 			}
 
-			clusterKey, err := loadClusterKey(keyFile)
+			ck, err := loadClusterKey(keyFile, clusterKey)
 			if err != nil {
-				return fmt.Errorf("invalid cluster key (base64): %w", err)
+				return fmt.Errorf("failed to load cluster key (env/file): %w", err)
 			}
 
 			client := cliClient()
@@ -202,7 +219,7 @@ func secretsGetCmd() *cobra.Command {
 			}
 			var nonce [24]byte
 			copy(nonce[:], ciphertext[:24])
-			plaintext, ok := secretbox.Open(nil, ciphertext[24:], &nonce, &clusterKey)
+			plaintext, ok := secretbox.Open(nil, ciphertext[24:], &nonce, &ck)
 			if !ok {
 				return fmt.Errorf("decryption failed")
 			}
